@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+html {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+}
+
+body {
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+}
+
+/* Evita zoom accidental por doble tap en elementos interactivos */
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* ============================================================
+   Login KYK Server Web — fondo tipo "centro de control":
+   malla técnica + auroras esmeralda/cian en movimiento lento.
+   ============================================================ */
+.ksw-stage {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(110% 75% at 15% -10%, rgba(16, 185, 129, 0.14), transparent 55%),
+    radial-gradient(100% 70% at 90% 110%, rgba(34, 211, 238, 0.12), transparent 55%),
+    #060a12;
+}
+
+.ksw-stage::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  background-image:
+    linear-gradient(rgba(45, 212, 191, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 212, 191, 0.06) 1px, transparent 1px);
+  background-size: 56px 56px, 56px 56px;
+  -webkit-mask-image: radial-gradient(75% 65% at 50% 40%, #000 30%, transparent 80%);
+          mask-image: radial-gradient(75% 65% at 50% 40%, #000 30%, transparent 80%);
+  pointer-events: none;
+}
+
+@keyframes ksw-aurora {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%      { transform: translate3d(4%, -6%, 0) scale(1.12); }
+  66%      { transform: translate3d(-5%, 5%, 0) scale(0.95); }
+}
+
+.ksw-aurora {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.55;
+  animation: ksw-aurora 14s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Línea superior degradada de la tarjeta */
+.ksw-card-accent {
+  background: linear-gradient(90deg, transparent, #34d399 25%, #22d3ee 75%, transparent);
+}
+
+/* Texto con degradado de marca */
+.ksw-gradient-text {
+  background: linear-gradient(120deg, #6ee7b7, #34d399 40%, #22d3ee 80%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+/* Sacudida para errores de login */
+@keyframes ksw-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.ksw-shake { animation: ksw-shake 0.35s ease-in-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ksw-aurora, .ksw-shake { animation: none; }
+}
