@@ -147,6 +147,14 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   y cuándo; oficina ve el conteo y el detalle por documento) y retiro suave. Búsqueda por
   nombre/archivo/carpeta.
 
+- **Comunicación → Chat** (`/dashboard/chat`): fase 3 del portal. Canales lógicos sin tabla de
+  canales: **General** (todas las tiendas) y **tienda↔oficina** por tienda (oficina ve todos).
+  Mensajes en `chat_mensajes` con **fotos adjuntas** (máx. 10 MB, en `uploads/chat/`, servidas
+  con validación de acceso al canal) y lecturas en `chat_lecturas` (badges de no leídos por
+  canal). Tiempo real por **polling**: mensajes del canal abierto cada 5 s (incremental por
+  IdMensaje) y badges cada 15 s — robusto ante los cortes de VPN nocturnos; SSE queda como
+  mejora futura. Burbujas con nombre y tienda del emisor, Enter envía, Shift+Enter salto.
+
 ### Exportación (Precios y Ofertas)
 
 Botones **PDF** (jsPDF + autotable) y **Excel** (xlsx-js-style) en ambas pantallas — misma

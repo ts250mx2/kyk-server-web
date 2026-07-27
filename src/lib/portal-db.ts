@@ -84,6 +84,24 @@ const TABLAS = [
         FechaDescarga DATETIME NOT NULL,
         KEY idx_doc (IdDocumento)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS chat_mensajes (
+        IdMensaje INT AUTO_INCREMENT PRIMARY KEY,
+        Canal VARCHAR(30) NOT NULL,
+        IdTienda INT NOT NULL DEFAULT 0,
+        CodigoBarras VARCHAR(45) NOT NULL,
+        Nombre VARCHAR(100) NOT NULL DEFAULT '',
+        Mensaje TEXT NOT NULL,
+        Imagen VARCHAR(255) NOT NULL DEFAULT '',
+        FechaEnvio DATETIME NOT NULL,
+        KEY idx_canal (Canal, IdMensaje)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS chat_lecturas (
+        Canal VARCHAR(30) NOT NULL,
+        CodigoBarras VARCHAR(45) NOT NULL,
+        UltimoLeido INT NOT NULL DEFAULT 0,
+        FechaAct DATETIME NOT NULL,
+        PRIMARY KEY (Canal, CodigoBarras)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
 ];
 
 let esquemaListo: Promise<void> | null = null;
