@@ -84,6 +84,15 @@ const TABLAS = [
         FechaDescarga DATETIME NOT NULL,
         KEY idx_doc (IdDocumento)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS comunicados_adjuntos (
+        IdAdjunto INT AUTO_INCREMENT PRIMARY KEY,
+        IdComunicado INT NOT NULL,
+        Nombre VARCHAR(255) NOT NULL,
+        Archivo VARCHAR(255) NOT NULL,
+        Tamano BIGINT NOT NULL DEFAULT 0,
+        TipoMime VARCHAR(100) NOT NULL DEFAULT '',
+        KEY idx_comunicado (IdComunicado)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
     `CREATE TABLE IF NOT EXISTS chat_mensajes (
         IdMensaje INT AUTO_INCREMENT PRIMARY KEY,
         Canal VARCHAR(30) NOT NULL,

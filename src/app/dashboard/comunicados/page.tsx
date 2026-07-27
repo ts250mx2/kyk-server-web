@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState } from "react"
 import {
     Loader2, AlertTriangle, Megaphone, X, Plus, CheckCircle2,
-    ClipboardCheck, Trash2, RefreshCw
+    ClipboardCheck, Trash2, RefreshCw, Paperclip
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fmtInt, fmtFechaHora } from "@/lib/format"
+import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
+import { DropZone } from "@/components/dashboard/DropZone"
+
+interface Adjunto { idAdjunto: number; nombre: string; tamano: number }
 
 interface Comunicado {
     idComunicado: number
@@ -19,6 +22,7 @@ interface Comunicado {
     fecha: string
     acusado: boolean
     fechaAcuse: string | null
+    adjuntos: Adjunto[]
 }
 
 interface TiendaOption { IdTienda: number; Tienda: string }
@@ -48,6 +52,7 @@ export default function ComunicadosPage() {
     const [todasTiendas, setTodasTiendas] = useState(true)
     const [tiendas, setTiendas] = useState<TiendaOption[]>([])
     const [tiendasSel, setTiendasSel] = useState<Set<number>>(new Set())
+    const [archivos, setArchivos] = useState<File[]>([])
     const [publicando, setPublicando] = useState(false)
 
     // Modal de acuses (oficina)
@@ -113,22 +118,20 @@ export default function ComunicadosPage() {
         setPublicando(true)
         setError("")
         try {
-            const res = await fetch("/api/comunicados", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    titulo: titulo.trim(),
-                    cuerpo: cuerpo.trim(),
-                    urgente,
-                    vigenteHasta: vigenteHasta || null,
-                    tiendas: todasTiendas ? [] : [...tiendasSel],
-                }),
-            })
+            const form = new FormData()
+            form.set("titulo", titulo.trim())
+            form.set("cuerpo", cuerpo.trim())
+            form.set("urgente", urgente ? "1" : "")
+            form.set("vigenteHasta", vigenteHasta || "")
+            form.set("tiendas", JSON.stringify(todasTiendas ? [] : [...tiendasSel]))
+            for (const a of archivos) form.append("adjuntos", a)
+
+            const res = await fetch("/api/comunicados", { method: "POST", body: form })
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || "Error al publicar")
             setNuevoAbierto(false)
             setTitulo(""); setCuerpo(""); setUrgente(false); setVigenteHasta("")
-            setTodasTiendas(true); setTiendasSel(new Set())
+            setTodasTiendas(true); setTiendasSel(new Set()); setArchivos([])
             cargar(historial)
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Error al publicar")
@@ -287,6 +290,23 @@ export default function ComunicadosPage() {
                                 {c.cuerpo}
                             </p>
 
+                            {c.adjuntos.length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {c.adjuntos.map(a => (
+                                        <a
+                                            key={a.idAdjunto}
+                                            href={`/api/comunicados/adjuntos/${a.idAdjunto}`}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/25 text-cyan-300 text-[11px] font-black hover:bg-cyan-500/20 transition-all"
+                                            title={`Descargar ${a.nombre}`}
+                                        >
+                                            <Paperclip className="h-3.5 w-3.5" />
+                                            <span className="max-w-[220px] truncate">{a.nombre}</span>
+                                            <span className="text-cyan-500/70">({fmtTamano(a.tamano)})</span>
+                                        </a>
+                                    ))}
+                                </div>
+                            )}
+
                             <div className="mt-4">
                                 {c.acusado ? (
                                     <span className="inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-400 uppercase tracking-widest">
@@ -346,6 +366,34 @@ export default function ComunicadosPage() {
                                     onChange={e => setCuerpo(e.target.value)}
                                     placeholder="Escribe el comunicado..."
                                 />
+                            </div>
+                            <div>
+                                <label className={cn(lbl, "block mb-1.5 pl-1")}>Archivos adjuntos (opcional, máx. 10 × 25 MB)</label>
+                                <DropZone
+                                    multiple
+                                    onFiles={fs => setArchivos(prev => [...prev, ...fs].slice(0, 10))}
+                                    mensaje="Arrastra los archivos aquí o haz clic para seleccionar"
+                                />
+                                {archivos.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        {archivos.map((a, i) => (
+                                            <span
+                                                key={`${a.name}-${i}`}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 text-[11px] font-bold"
+                                            >
+                                                <Paperclip className="h-3.5 w-3.5 text-cyan-400" />
+                                                <span className="max-w-[200px] truncate">{a.name}</span>
+                                                <span className="text-slate-500">({fmtTamano(a.size)})</span>
+                                                <button
+                                                    onClick={() => setArchivos(prev => prev.filter((_, j) => j !== i))}
+                                                    className="text-slate-500 hover:text-rose-300 transition-colors"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                             <div className="flex flex-wrap gap-3 items-center">
                                 <label className="flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-500/[0.06] border border-rose-500/20 cursor-pointer select-none">

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { portalQuery, esOficina } from '@/lib/portal-db';
+import { guardarArchivo, TAMANO_MAXIMO } from '@/lib/documentos-fs';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,26 @@ export async function GET(request: Request) {
             LIMIT 200
         `, [session.codigobarras, session.idTienda, session.idTienda]) as Row[];
 
+        // Adjuntos de los comunicados listados (una sola consulta)
+        const adjuntosMap = new Map<number, Array<{ idAdjunto: number; nombre: string; tamano: number }>>();
+        if (rows.length > 0) {
+            const ids = rows.map(r => num(r.IdComunicado)).filter(n => n > 0);
+            try {
+                const adjuntos = await portalQuery(`
+                    SELECT IdAdjunto, IdComunicado, Nombre, Tamano
+                    FROM comunicados_adjuntos
+                    WHERE IdComunicado IN (${ids.join(',')})
+                    ORDER BY IdAdjunto
+                `) as Row[];
+                for (const a of adjuntos) {
+                    const idComunicado = num(a.IdComunicado);
+                    const lista = adjuntosMap.get(idComunicado) ?? [];
+                    lista.push({ idAdjunto: num(a.IdAdjunto), nombre: str(a.Nombre), tamano: num(a.Tamano) });
+                    adjuntosMap.set(idComunicado, lista);
+                }
+            } catch { /* sin adjuntos si falla */ }
+        }
+
         const comunicados = rows.map(r => ({
             idComunicado: num(r.IdComunicado),
             titulo: str(r.Titulo),
@@ -50,6 +71,7 @@ export async function GET(request: Request) {
             fecha: r.FechaPublicacion,
             acusado: r.FechaAcuse != null,
             fechaAcuse: r.FechaAcuse ?? null,
+            adjuntos: adjuntosMap.get(num(r.IdComunicado)) ?? [],
         }));
 
         return NextResponse.json({
@@ -77,17 +99,34 @@ export async function POST(request: Request) {
     }
 
     try {
-        const { titulo, cuerpo, urgente, vigenteHasta, tiendas } = await request.json();
+        // Multipart para soportar archivos adjuntos (arrastrados o seleccionados)
+        const form = await request.formData();
+        const titulo = String(form.get('titulo') ?? '').trim();
+        const cuerpo = String(form.get('cuerpo') ?? '').trim();
+        const urgente = String(form.get('urgente') ?? '') === '1';
+        const vigenteHasta = String(form.get('vigenteHasta') ?? '');
+        const adjuntos = form.getAll('adjuntos').filter((a): a is File => a instanceof File && a.size > 0);
 
-        if (!titulo?.trim() || !cuerpo?.trim()) {
+        if (!titulo || !cuerpo) {
             return NextResponse.json({ error: 'Título y contenido son requeridos' }, { status: 400 });
         }
+        if (adjuntos.length > 10) {
+            return NextResponse.json({ error: 'Máximo 10 archivos adjuntos' }, { status: 400 });
+        }
+        for (const a of adjuntos) {
+            if (a.size > TAMANO_MAXIMO) {
+                return NextResponse.json({ error: `El adjunto "${a.name}" excede el límite de 25 MB` }, { status: 400 });
+            }
+        }
 
-        const destinos: number[] = Array.isArray(tiendas)
-            ? tiendas.map(Number).filter(n => Number.isInteger(n) && n > 0)
-            : [];
+        let destinos: number[] = [];
+        try {
+            destinos = JSON.parse(String(form.get('tiendas') ?? '[]'))
+                .map(Number)
+                .filter((n: number) => Number.isInteger(n) && n > 0);
+        } catch { destinos = []; }
         const todasTiendas = destinos.length === 0 ? 1 : 0;
-        const vigencia = /^\d{4}-\d{2}-\d{2}$/.test(String(vigenteHasta ?? ''))
+        const vigencia = /^\d{4}-\d{2}-\d{2}$/.test(vigenteHasta)
             ? `${vigenteHasta} 23:59:59`
             : null;
 
@@ -97,8 +136,8 @@ export async function POST(request: Request) {
                  PublicadoPor, PublicadoPorNombre, FechaPublicacion, Status)
             VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 0)
         `, [
-            String(titulo).trim().slice(0, 200),
-            String(cuerpo).trim(),
+            titulo.slice(0, 200),
+            cuerpo,
             urgente ? 1 : 0,
             todasTiendas,
             vigencia,
@@ -113,6 +152,15 @@ export async function POST(request: Request) {
                     [resultado.insertId, idTienda]
                 );
             }
+        }
+
+        for (const a of adjuntos) {
+            const contenido = Buffer.from(await a.arrayBuffer());
+            const nombreFisico = await guardarArchivo(a.name, contenido, 'comunicados');
+            await portalQuery(`
+                INSERT INTO comunicados_adjuntos (IdComunicado, Nombre, Archivo, Tamano, TipoMime)
+                VALUES (?, ?, ?, ?, ?)
+            `, [resultado.insertId, a.name.slice(0, 255), nombreFisico, a.size, a.type || '']);
         }
 
         return NextResponse.json({ success: true, idComunicado: resultado.insertId });

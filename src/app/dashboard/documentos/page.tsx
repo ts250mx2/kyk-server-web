@@ -7,7 +7,8 @@ import {
     Trash2, Eye, Upload
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fmtInt, fmtFechaHora } from "@/lib/format"
+import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
+import { DropZone } from "@/components/dashboard/DropZone"
 
 interface Documento {
     idDocumento: number
@@ -30,12 +31,6 @@ interface Descarga { tienda: string; usuario: string; fecha: string }
 const lbl = "text-[10px] font-black text-slate-500 uppercase tracking-widest"
 const inputCls = "block w-full px-4 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-sm font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/25 focus:border-emerald-400/60 transition-all"
 
-const fmtTamano = (bytes: number) => {
-    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
-    return `${bytes} B`
-}
-
 const IconoArchivo = ({ nombre, mime }: { nombre: string; mime: string }) => {
     const ext = nombre.split(".").pop()?.toLowerCase() ?? ""
     if (mime.includes("pdf") || ext === "pdf") return <FileText className="h-5 w-5 text-rose-400" />
@@ -56,8 +51,9 @@ export default function DocumentosPage() {
 
     // Modal subir (oficina)
     const [subirAbierto, setSubirAbierto] = useState(false)
-    const [archivo, setArchivo] = useState<File | null>(null)
+    const [archivos, setArchivos] = useState<File[]>([])
     const [nombre, setNombre] = useState("")
+    const [arrastrandoPagina, setArrastrandoPagina] = useState(false)
     const [carpetaNueva, setCarpetaNueva] = useState("")
     const [carpetaDestino, setCarpetaDestino] = useState(0)
     const [todasTiendas, setTodasTiendas] = useState(true)
@@ -112,7 +108,7 @@ export default function DocumentosPage() {
     }
 
     const subir = async () => {
-        if (!archivo) { setError("Selecciona un archivo"); return }
+        if (archivos.length === 0) { setError("Selecciona o arrastra al menos un archivo"); return }
         setSubiendo(true)
         setError("")
         try {
@@ -127,18 +123,21 @@ export default function DocumentosPage() {
                 if (res.ok) idCarpeta = json.idCarpeta
             }
 
-            const form = new FormData()
-            form.set("archivo", archivo)
-            form.set("nombre", nombre.trim() || archivo.name)
-            form.set("carpeta", String(idCarpeta))
-            form.set("tiendas", JSON.stringify(todasTiendas ? [] : [...tiendasSel]))
+            // Cada archivo se sube como un documento propio
+            for (const archivo of archivos) {
+                const form = new FormData()
+                form.set("archivo", archivo)
+                form.set("nombre", archivos.length === 1 ? (nombre.trim() || archivo.name) : archivo.name)
+                form.set("carpeta", String(idCarpeta))
+                form.set("tiendas", JSON.stringify(todasTiendas ? [] : [...tiendasSel]))
 
-            const res = await fetch("/api/documentos", { method: "POST", body: form })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error || "Error al subir")
+                const res = await fetch("/api/documentos", { method: "POST", body: form })
+                const json = await res.json()
+                if (!res.ok) throw new Error(json.error || `Error al subir "${archivo.name}"`)
+            }
 
             setSubirAbierto(false)
-            setArchivo(null); setNombre(""); setCarpetaNueva(""); setCarpetaDestino(0)
+            setArchivos([]); setNombre(""); setCarpetaNueva(""); setCarpetaDestino(0)
             setTodasTiendas(true); setTiendasSel(new Set())
             cargar(carpetaSel, busqueda.trim())
         } catch (err: unknown) {
@@ -146,6 +145,15 @@ export default function DocumentosPage() {
         } finally {
             setSubiendo(false)
         }
+    }
+
+    // Soltar archivos en cualquier parte de la página abre el modal de subida (oficina)
+    const soltarEnPagina = (files: FileList) => {
+        if (rol !== "oficina") return
+        const nuevos = [...files]
+        if (nuevos.length === 0) return
+        setArchivos(prev => [...prev, ...nuevos])
+        abrirSubir()
     }
 
     const verAuditoria = async (d: Documento) => {
@@ -183,7 +191,28 @@ export default function DocumentosPage() {
     }
 
     return (
-        <div className="space-y-4">
+        <div
+            className={cn(
+                "space-y-4 rounded-2xl transition-all",
+                arrastrandoPagina && rol === "oficina" && "ring-2 ring-emerald-400/50 ring-offset-4 ring-offset-[#060a12]"
+            )}
+            onDragOver={e => {
+                if (rol === "oficina") {
+                    e.preventDefault()
+                    setArrastrandoPagina(true)
+                }
+            }}
+            onDragLeave={e => {
+                if (e.currentTarget === e.target) setArrastrandoPagina(false)
+            }}
+            onDrop={e => {
+                if (rol === "oficina") {
+                    e.preventDefault()
+                    setArrastrandoPagina(false)
+                    soltarEnPagina(e.dataTransfer.files)
+                }
+            }}
+        >
             {/* Encabezado */}
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
@@ -338,28 +367,49 @@ export default function DocumentosPage() {
                         </div>
                         <div className="p-6 space-y-4">
                             <div>
-                                <label className={cn(lbl, "block mb-1.5 pl-1")}>Archivo (máx. 25 MB)</label>
-                                <input
-                                    type="file"
-                                    onChange={e => {
-                                        const f = e.target.files?.[0] ?? null
-                                        setArchivo(f)
-                                        if (f && !nombre.trim()) setNombre(f.name)
+                                <label className={cn(lbl, "block mb-1.5 pl-1")}>Archivos (máx. 25 MB c/u)</label>
+                                <DropZone
+                                    multiple
+                                    onFiles={fs => {
+                                        setArchivos(prev => [...prev, ...fs])
+                                        if (fs.length === 1 && !nombre.trim()) setNombre(fs[0].name)
                                     }}
-                                    className="block w-full text-[12px] font-bold text-slate-300 file:mr-3 file:px-4 file:py-2.5 file:rounded-xl file:border-0 file:bg-emerald-500 file:text-slate-950 file:font-black file:text-[11px] file:uppercase file:cursor-pointer cursor-pointer bg-white/[0.03] border border-white/10 rounded-xl"
+                                    mensaje="Arrastra los archivos aquí o haz clic para seleccionar"
                                 />
+                                {archivos.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        {archivos.map((a, i) => (
+                                            <span
+                                                key={`${a.name}-${i}`}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 text-[11px] font-bold"
+                                            >
+                                                <FileIcon className="h-3.5 w-3.5 text-cyan-400" />
+                                                <span className="max-w-[200px] truncate">{a.name}</span>
+                                                <span className="text-slate-500">({fmtTamano(a.size)})</span>
+                                                <button
+                                                    onClick={() => setArchivos(prev => prev.filter((_, j) => j !== i))}
+                                                    className="text-slate-500 hover:text-rose-300 transition-colors"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                            <div>
-                                <label className={cn(lbl, "block mb-1.5 pl-1")}>Nombre para mostrar</label>
-                                <input
-                                    type="text"
-                                    className={inputCls}
-                                    value={nombre}
-                                    onChange={e => setNombre(e.target.value)}
-                                    maxLength={200}
-                                    placeholder="Nombre del documento"
-                                />
-                            </div>
+                            {archivos.length === 1 && (
+                                <div>
+                                    <label className={cn(lbl, "block mb-1.5 pl-1")}>Nombre para mostrar</label>
+                                    <input
+                                        type="text"
+                                        className={inputCls}
+                                        value={nombre}
+                                        onChange={e => setNombre(e.target.value)}
+                                        maxLength={200}
+                                        placeholder="Nombre del documento"
+                                    />
+                                </div>
+                            )}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label className={cn(lbl, "block mb-1.5 pl-1")}>Carpeta</label>
@@ -423,11 +473,11 @@ export default function DocumentosPage() {
                             </button>
                             <button
                                 onClick={subir}
-                                disabled={subiendo || !archivo || (!todasTiendas && tiendasSel.size === 0)}
+                                disabled={subiendo || archivos.length === 0 || (!todasTiendas && tiendasSel.size === 0)}
                                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all disabled:opacity-50"
                             >
                                 {subiendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                Subir
+                                Subir {archivos.length > 1 ? `(${archivos.length})` : ""}
                             </button>
                         </div>
                     </div>
