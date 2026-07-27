@@ -136,7 +136,9 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   (título, cuerpo, urgente, vigencia, todas las tiendas o específicas) y las tiendas **confirman
   de enterado**; oficina ve el tablero de acuses por tienda (quién confirmó y quién falta).
   **Campana en el header** con badge de no confirmados (rojo si hay urgentes, se actualiza cada
-  minuto) y **banner rojo en Principal** cuando hay urgentes pendientes. Rol oficina: env
+  minuto) y **banner rojo en Principal** cuando hay urgentes pendientes. Los comunicados aceptan
+  **archivos adjuntos** (arrastrar y soltar, máx. 10 × 25 MB, `comunicados_adjuntos` +
+  `uploads/comunicados/`) con chips de descarga validados por tienda. Rol oficina: env
   `PORTAL_OFICINA` (códigos de barras separados por coma) o fila en `portal_usuarios` con
   Rol='oficina'.
 
@@ -145,7 +147,9 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   oficina (máx. 25 MB; archivos en `uploads/documentos/` del servidor — configurable con
   `PORTAL_UPLOADS` — y metadatos en BDKYKPortal), descarga con **auditoría** (quién bajó qué
   y cuándo; oficina ve el conteo y el detalle por documento) y retiro suave. Búsqueda por
-  nombre/archivo/carpeta.
+  nombre/archivo/carpeta. Subida con **arrastrar y soltar** (varios archivos a la vez — cada uno
+  queda como documento propio — e incluso soltándolos sobre la página, que abre el modal
+  precargado).
 
 - **Comunicación → Chat** (`/dashboard/chat`): fase 3 del portal. Canales lógicos sin tabla de
   canales: **General** (todas las tiendas) y **tienda↔oficina** por tienda (oficina ve todos).
