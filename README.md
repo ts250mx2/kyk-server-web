@@ -130,6 +130,16 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   rango de fechas. Importe estimado con `tblArticulosProveedor.Costo` (respaldo `UltimoCosto`).
   Búsqueda, resumen (partidas/proveedores/monto) y export PDF/Excel.
 
+- **Comunicación → Comunicados** (`/dashboard/comunicados`): fase 1 del portal de comunicación.
+  Base central propia **BDKYKPortal** (mismo servidor MySQL central; las tablas se crean solas —
+  `comunicados`, `comunicados_tiendas`, `comunicados_acuses`, `portal_usuarios`). Oficina publica
+  (título, cuerpo, urgente, vigencia, todas las tiendas o específicas) y las tiendas **confirman
+  de enterado**; oficina ve el tablero de acuses por tienda (quién confirmó y quién falta).
+  **Campana en el header** con badge de no confirmados (rojo si hay urgentes, se actualiza cada
+  minuto) y **banner rojo en Principal** cuando hay urgentes pendientes. Rol oficina: env
+  `PORTAL_OFICINA` (códigos de barras separados por coma) o fila en `portal_usuarios` con
+  Rol='oficina'.
+
 ### Exportación (Precios y Ofertas)
 
 Botones **PDF** (jsPDF + autotable) y **Excel** (xlsx-js-style) en ambas pantallas — misma

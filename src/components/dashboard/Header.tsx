@@ -1,8 +1,9 @@
 "use client"
 
 import React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Store, User, LogOut, Database } from "lucide-react"
+import { Store, User, LogOut, Database, Bell } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface SessionUser {
@@ -15,6 +16,7 @@ interface SessionUser {
 export function Header({ isCollapsed = false }: { isCollapsed?: boolean }) {
     const router = useRouter()
     const [user, setUser] = React.useState<SessionUser | null>(null)
+    const [noLeidos, setNoLeidos] = React.useState({ total: 0, urgentes: 0 })
 
     React.useEffect(() => {
         const fetchUser = async () => {
@@ -29,6 +31,25 @@ export function Header({ isCollapsed = false }: { isCollapsed?: boolean }) {
             }
         }
         fetchUser()
+    }, [])
+
+    // Campana de comunicados: consulta los no leídos cada minuto
+    React.useEffect(() => {
+        let activo = true
+        const consultar = async () => {
+            try {
+                const res = await fetch("/api/comunicados/no-leidos")
+                const data = await res.json()
+                if (activo && res.ok) {
+                    setNoLeidos({ total: data.total ?? 0, urgentes: data.urgentes ?? 0 })
+                }
+            } catch {
+                // la campana no debe romper el header si el central no responde
+            }
+        }
+        consultar()
+        const intervalo = setInterval(consultar, 60_000)
+        return () => { activo = false; clearInterval(intervalo) }
     }, [])
 
     const handleLogout = async () => {
@@ -86,6 +107,27 @@ export function Header({ isCollapsed = false }: { isCollapsed?: boolean }) {
 
             {/* Usuario y salir */}
             <div className="flex items-center gap-3">
+                <Link
+                    href="/dashboard/comunicados"
+                    className={cn(
+                        "relative p-2 rounded-xl border transition-all",
+                        noLeidos.urgentes > 0
+                            ? "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                            : "bg-white/[0.05] border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/30"
+                    )}
+                    title={noLeidos.total > 0 ? `${noLeidos.total} comunicados sin confirmar` : "Comunicados"}
+                >
+                    <Bell className={cn("h-4 w-4", noLeidos.urgentes > 0 && "animate-pulse")} />
+                    {noLeidos.total > 0 && (
+                        <span className={cn(
+                            "absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black flex items-center justify-center border-2 border-[#0a101c]",
+                            noLeidos.urgentes > 0 ? "bg-rose-500 text-white" : "bg-emerald-500 text-slate-950"
+                        )}>
+                            {noLeidos.total > 99 ? "99+" : noLeidos.total}
+                        </span>
+                    )}
+                </Link>
+
                 <div className="hidden sm:flex flex-col text-right">
                     <p className="text-[13px] font-bold leading-none text-white">{user?.name ?? "Cargando..."}</p>
                     <p className="text-[9px] text-slate-500 mt-1 uppercase tracking-widest font-black">Sesión activa</p>

@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { RefreshCw, Loader2, AlertTriangle, Clock } from "lucide-react"
+import Link from "next/link"
+import { RefreshCw, Loader2, AlertTriangle, Clock, Megaphone } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt, fmtHora, fmtFechaLarga } from "@/lib/format"
 
@@ -130,6 +131,17 @@ export default function PrincipalPage() {
         return () => clearInterval(interval)
     }, [load])
 
+    // Banner de comunicados urgentes sin confirmar
+    const [urgentes, setUrgentes] = useState(0)
+    useEffect(() => {
+        let activo = true
+        fetch("/api/comunicados/no-leidos")
+            .then(r => r.json())
+            .then(d => { if (activo) setUrgentes(d.urgentes ?? 0) })
+            .catch(() => { /* sin banner si el central no responde */ })
+        return () => { activo = false }
+    }, [])
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center py-32 gap-4">
@@ -164,6 +176,19 @@ export default function PrincipalPage() {
 
     return (
         <div className="space-y-6">
+            {/* Comunicados urgentes pendientes */}
+            {urgentes > 0 && (
+                <Link
+                    href="/dashboard/comunicados"
+                    className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl px-5 py-3.5 hover:bg-rose-500/15 transition-all"
+                >
+                    <Megaphone className="h-5 w-5 text-rose-300 animate-pulse shrink-0" />
+                    <span className="text-[12px] font-black text-rose-300 uppercase tracking-widest">
+                        {fmtInt(urgentes)} comunicado{urgentes > 1 ? "s" : ""} urgente{urgentes > 1 ? "s" : ""} sin confirmar — clic para verlo{urgentes > 1 ? "s" : ""}
+                    </span>
+                </Link>
+            )}
+
             {/* Encabezado */}
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
