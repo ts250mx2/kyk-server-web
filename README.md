@@ -115,6 +115,21 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   (`SUM(Mov × Costo)` de `tblDetalleMovimientos2`, el Total del encabezado viene en null).
   Rango de fechas, búsqueda, resumen, modal de partidas y export PDF/Excel.
 
+- **Operaciones → Devoluciones de Venta** (`/dashboard/operaciones/devoluciones`): versión de
+  consulta de frmProcDevolucionesVenta. `tblDevolucionesVenta` (clave, cliente, motivo, empleado,
+  valor, estado de canje — `IdComputadoraCanje > 0` = vale canjeado en caja, con fecha; badge NC
+  si se timbró nota de crédito) + modal de partidas de `tblDetalleDevolucionesVenta`
+  (`CantidadAnterior` = cantidad del ticket, `Cantidad` = devuelta; las filas con 0 se atenúan;
+  importe = Cantidad × PrecioVenta, cuadra con Valor). Rango de fechas, búsqueda, resumen
+  (canjeadas/pendientes) y export PDF/Excel.
+
+- **Operaciones → Devoluciones de Compra** (`/dashboard/operaciones/devoluciones-compra`):
+  versión de consulta de frmProcDevolucionesCompra. No hay tabla de encabezado: tab
+  **Pendientes** = `tblDetalleDevolucionesCompra` (mercancía apartada por devolver al proveedor,
+  se vacía al procesarse) y tab **Historial** = `tblDetalleDevolucionesCompraHistorial` con
+  rango de fechas. Importe estimado con `tblArticulosProveedor.Costo` (respaldo `UltimoCosto`).
+  Búsqueda, resumen (partidas/proveedores/monto) y export PDF/Excel.
+
 ### Exportación (Precios y Ofertas)
 
 Botones **PDF** (jsPDF + autotable) y **Excel** (xlsx-js-style) en ambas pantallas — misma

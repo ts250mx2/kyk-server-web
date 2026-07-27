@@ -50,6 +50,8 @@ const menuSections: MenuSection[] = [
             { name: "Recibos", emoji: "📄", href: "/dashboard/recibos/reporte" },
             { name: "Transferencias", emoji: "🔄", href: "/dashboard/transferencias/reporte" },
             { name: "Otros Movimientos", emoji: "📋", href: "/dashboard/operaciones/movimientos" },
+            { name: "Devoluciones de Venta", emoji: "↩️", href: "/dashboard/operaciones/devoluciones" },
+            { name: "Devoluciones de Compra", emoji: "📦", href: "/dashboard/operaciones/devoluciones-compra" },
         ]
     },
 ];
