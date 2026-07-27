@@ -49,6 +49,41 @@ const TABLAS = [
         Rol VARCHAR(20) NOT NULL DEFAULT 'tienda',
         FechaAlta DATETIME NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS documentos_carpetas (
+        IdCarpeta INT AUTO_INCREMENT PRIMARY KEY,
+        Nombre VARCHAR(100) NOT NULL,
+        Status TINYINT NOT NULL DEFAULT 0,
+        FechaAlta DATETIME NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS documentos (
+        IdDocumento INT AUTO_INCREMENT PRIMARY KEY,
+        IdCarpeta INT NOT NULL DEFAULT 0,
+        Nombre VARCHAR(200) NOT NULL,
+        NombreArchivo VARCHAR(255) NOT NULL,
+        Archivo VARCHAR(255) NOT NULL,
+        Tamano BIGINT NOT NULL DEFAULT 0,
+        TipoMime VARCHAR(100) NOT NULL DEFAULT '',
+        TodasTiendas TINYINT NOT NULL DEFAULT 1,
+        SubidoPor VARCHAR(45) NOT NULL,
+        SubidoPorNombre VARCHAR(100) NOT NULL DEFAULT '',
+        FechaSubida DATETIME NOT NULL,
+        Status TINYINT NOT NULL DEFAULT 0,
+        KEY idx_carpeta (IdCarpeta)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS documentos_tiendas (
+        IdDocumento INT NOT NULL,
+        IdTienda INT NOT NULL,
+        PRIMARY KEY (IdDocumento, IdTienda)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS documentos_descargas (
+        IdDescarga INT AUTO_INCREMENT PRIMARY KEY,
+        IdDocumento INT NOT NULL,
+        IdTienda INT NOT NULL,
+        CodigoBarras VARCHAR(45) NOT NULL,
+        Nombre VARCHAR(100) NOT NULL DEFAULT '',
+        FechaDescarga DATETIME NOT NULL,
+        KEY idx_doc (IdDocumento)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
 ];
 
 let esquemaListo: Promise<void> | null = null;

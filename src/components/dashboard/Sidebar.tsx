@@ -46,6 +46,7 @@ const menuSections: MenuSection[] = [
         emoji: "📢",
         items: [
             { name: "Comunicados", emoji: "📣", href: "/dashboard/comunicados" },
+            { name: "Documentos", emoji: "📁", href: "/dashboard/documentos" },
         ]
     },
     {

@@ -140,6 +140,13 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   `PORTAL_OFICINA` (códigos de barras separados por coma) o fila en `portal_usuarios` con
   Rol='oficina'.
 
+- **Comunicación → Documentos** (`/dashboard/documentos`): fase 2 del portal. Repositorio de
+  archivos con **carpetas** (chips), targeting por tienda (todas o específicas), subida por
+  oficina (máx. 25 MB; archivos en `uploads/documentos/` del servidor — configurable con
+  `PORTAL_UPLOADS` — y metadatos en BDKYKPortal), descarga con **auditoría** (quién bajó qué
+  y cuándo; oficina ve el conteo y el detalle por documento) y retiro suave. Búsqueda por
+  nombre/archivo/carpeta.
+
 ### Exportación (Precios y Ofertas)
 
 Botones **PDF** (jsPDF + autotable) y **Excel** (xlsx-js-style) en ambas pantallas — misma

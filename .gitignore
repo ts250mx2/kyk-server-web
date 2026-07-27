@@ -37,3 +37,6 @@ next-env.d.ts
 /tmp/
 /.cache/
 /scratch/
+
+# archivos subidos al repositorio de documentos del portal
+/uploads/
