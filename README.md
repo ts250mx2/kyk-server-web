@@ -98,6 +98,21 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   `/api/recibos/[id]/impresion` (**solo lectura** — sin los UPDATEs que ejecuta el Java);
   PDF en [src/lib/recibo-pdf.ts](src/lib/recibo-pdf.ts), abre en pestaña nueva.
 
+- **Artículos → Inventarios** (`/dashboard/articulos/inventarios`): versión web de la página de
+  Inventarios del sitio PHP kesosykosas.net. La tienda es **siempre la de la sesión** (no se
+  elige); solo se elige proveedor (combo buscable con `DiasPedido` por tienda autollenado desde
+  `tblProveedoresTiendasDias`, consulta directa al MySQL de tienda) y días de pedido. Las
+  existencias **no se recalculan aquí**: se reutiliza el servicio Java `KYKInventariosWeb`
+  (Tomcat de cada tienda) como motor de cálculo — el API del portal resuelve el host desde
+  `tblTiendas.DireccionWebService` del MySQL central (con lo que se elimina el proxy abierto
+  `getData.php` del sitio viejo), llama `webservices.jsp?method=inv` server-side con timeout
+  de 240 s (el recálculo puede tardar minutos; la UI muestra contador) y parsea defensivamente
+  el JSON del servicio (strings sin escapar, espacios colgando). Grid con existencia, días de
+  cobertura (`ExiPara`), PVD, estatus 0-4 como badges (Pedir/Exceso/Agotado con demanda/OK,
+  mismo orden del servidor: pendientes arriba), pedido sugerido con tránsito "(N) M", filtro
+  local del resultado y export PDF/Excel. Clic en un artículo abre el **modal de movimientos**
+  (`method=mov` sobre el buffer de la consulta) con fecha, concepto, usuario, real y equivalencia.
+
 - **Operaciones → Transferencias** (`/dashboard/transferencias/reporte`): reporte similar al de
   Recibos con tabs **Entradas** (`tblTransferenciasEntradas` + su salida ligada por FolioEntrada
   para origen/descripcion) y **Salidas** (propias, con destino y estado Recibida/En tránsito).

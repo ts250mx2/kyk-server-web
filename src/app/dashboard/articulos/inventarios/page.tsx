@@ -1,0 +1,588 @@
+"use client"
+
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+    Search, Loader2, AlertTriangle, ChevronDown, X, Boxes,
+    FileText, FileSpreadsheet
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { fmtInt, fmtFechaHora } from "@/lib/format"
+import { exportarPdf, exportarExcel, obtenerTiendaSesion, sufijoArchivo } from "@/lib/export"
+
+interface Proveedor {
+    idProveedor: number
+    proveedor: string
+    diasPedido: number
+}
+
+interface ArticuloInventario {
+    codigoInterno: number
+    codigoBarras: string
+    descripcion: string
+    exiActual: number
+    exiPara: number
+    pvd: number
+    medidaVenta: string
+    estatus: number
+    pedido: string
+    pedidoSugerido: number
+    pedidoTransito: number
+    medidaCompra: string
+    idComputadora: number
+}
+
+interface Movimiento {
+    fecha: string
+    codigoBarras: string
+    descripcion: string
+    concepto: string
+    usuario: string
+    mov: number
+    equiv: number
+    medidaVenta: string
+}
+
+const lbl = "text-[10px] font-black text-slate-500 uppercase tracking-widest"
+const inputCls = "block w-full px-4 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-sm font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/25 focus:border-emerald-400/60 transition-all"
+
+const MAX_LISTA_PROVEEDORES = 100
+
+// Misma semántica de iconos que la página PHP original (frm Inventarios):
+// 0 = hay que pedir, 1 = sobre-inventario, 2 = agotado con demanda creciente,
+// 3 y 4 = OK. El servidor ya ordena por estatus (pendientes de pedir arriba).
+const ESTATUS: Record<number, { etiqueta: string; titulo: string; cls: string }> = {
+    0: { etiqueta: "Pedir", titulo: "Hay que pedir", cls: "text-amber-300 bg-amber-500/10 border-amber-500/25" },
+    1: { etiqueta: "Exceso", titulo: "Sobre-inventario", cls: "text-rose-300 bg-rose-500/10 border-rose-500/25" },
+    2: { etiqueta: "Agotado", titulo: "Agotado con demanda creciente", cls: "text-rose-200 bg-rose-500/20 border-rose-500/40" },
+    3: { etiqueta: "OK", titulo: "Existencia sana", cls: "text-emerald-300 bg-emerald-500/10 border-emerald-500/25" },
+    4: { etiqueta: "OK", titulo: "Sin existencia ni demanda", cls: "text-emerald-300 bg-emerald-500/10 border-emerald-500/25" },
+}
+
+const decFmt = new Intl.NumberFormat("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtDec = (n: number) => decFmt.format(n || 0)
+
+export default function InventariosPage() {
+    const [proveedores, setProveedores] = useState<Proveedor[]>([])
+    const [cargandoProveedores, setCargandoProveedores] = useState(true)
+
+    // Combo buscable de proveedor
+    const [filtroProv, setFiltroProv] = useState("")
+    const [proveedorSel, setProveedorSel] = useState<Proveedor | null>(null)
+    const [listaAbierta, setListaAbierta] = useState(false)
+
+    const [diasPedido, setDiasPedido] = useState("")
+    const [articulos, setArticulos] = useState<ArticuloInventario[]>([])
+    const [consultado, setConsultado] = useState<{ proveedor: string; dias: number } | null>(null)
+    const [filtroArticulos, setFiltroArticulos] = useState("")
+    const [cargando, setCargando] = useState(false)
+    const [segundos, setSegundos] = useState(0)
+    const [error, setError] = useState("")
+    const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null)
+
+    // Modal de movimientos
+    const [movArticulo, setMovArticulo] = useState<ArticuloInventario | null>(null)
+    const [movimientos, setMovimientos] = useState<Movimiento[]>([])
+    const [cargandoMov, setCargandoMov] = useState(false)
+
+    const provInputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        fetch("/api/inventarios/proveedores")
+            .then(r => {
+                if (r.status === 401) { window.location.href = "/login"; return null }
+                return r.json()
+            })
+            .then(json => {
+                if (!json) return
+                if (json.proveedores) setProveedores(json.proveedores)
+                else setError(json.error || "Error al consultar proveedores")
+            })
+            .catch(() => setError("Error al consultar los proveedores de la tienda"))
+            .finally(() => setCargandoProveedores(false))
+    }, [])
+
+    // Contador de espera: el servicio recalcula el inventario y puede tardar minutos
+    useEffect(() => {
+        if (!cargando) return
+        const intervalo = setInterval(() => setSegundos(s => s + 1), 1000)
+        return () => clearInterval(intervalo)
+    }, [cargando])
+
+    const proveedoresFiltrados = useMemo(() => {
+        // Con proveedor ya elegido el texto es su nombre: se muestra la lista completa
+        const filtro = proveedorSel ? "" : filtroProv.trim().toLowerCase()
+        const lista = filtro
+            ? proveedores.filter(p => p.proveedor.toLowerCase().includes(filtro))
+            : proveedores
+        return { visibles: lista.slice(0, MAX_LISTA_PROVEEDORES), total: lista.length }
+    }, [proveedores, filtroProv, proveedorSel])
+
+    const elegirProveedor = (p: Proveedor) => {
+        setProveedorSel(p)
+        setFiltroProv(p.proveedor)
+        setDiasPedido(String(p.diasPedido || 7))
+        setListaAbierta(false)
+    }
+
+    const buscar = async () => {
+        const dias = Number(diasPedido)
+        if (!proveedorSel) { setError("Elige un proveedor"); return }
+        if (!Number.isInteger(dias) || dias <= 0 || dias > 99) { setError("Captura los días de pedido (1 a 99)"); return }
+        if (cargando) return
+
+        setError("")
+        setFiltroArticulos("")
+        setSegundos(0)
+        setCargando(true)
+        try {
+            const qs = new URLSearchParams({ idProveedor: String(proveedorSel.idProveedor), diasPedido: String(dias) })
+            const res = await fetch(`/api/inventarios?${qs.toString()}`)
+            if (res.status === 401) { window.location.href = "/login"; return }
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || "Error al consultar el inventario")
+            setArticulos(json.articulos)
+            setConsultado({ proveedor: proveedorSel.proveedor, dias })
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Error al consultar el inventario")
+            setArticulos([])
+            setConsultado(null)
+        } finally {
+            setCargando(false)
+        }
+    }
+
+    const verMovimientos = async (articulo: ArticuloInventario) => {
+        setMovArticulo(articulo)
+        setMovimientos([])
+        setCargandoMov(true)
+        try {
+            const qs = new URLSearchParams({
+                codigoInterno: String(articulo.codigoInterno),
+                idComputadora: String(articulo.idComputadora),
+            })
+            const res = await fetch(`/api/inventarios/movimientos?${qs.toString()}`)
+            const json = await res.json()
+            if (res.ok) setMovimientos(json.movimientos)
+            else {
+                setMovArticulo(null)
+                setError(json.error || "Error al consultar los movimientos")
+            }
+        } catch {
+            setMovArticulo(null)
+            setError("Error al consultar los movimientos del artículo")
+        } finally {
+            setCargandoMov(false)
+        }
+    }
+
+    const articulosVisibles = useMemo(() => {
+        const filtro = filtroArticulos.trim().toLowerCase()
+        if (!filtro) return articulos
+        return articulos.filter(a =>
+            a.descripcion.toLowerCase().includes(filtro) || a.codigoBarras.includes(filtro)
+        )
+    }, [articulos, filtroArticulos])
+
+    const resumen = useMemo(() => ({
+        total: articulos.length,
+        porPedir: articulos.filter(a => a.estatus === 0).length,
+        exceso: articulos.filter(a => a.estatus === 1).length,
+        agotados: articulos.filter(a => a.estatus === 2).length,
+    }), [articulos])
+
+    const exportar = async (formato: "pdf" | "excel") => {
+        if (!consultado) return
+        setExportando(formato)
+        try {
+            const tienda = await obtenerTiendaSesion()
+            const columnas = [
+                { header: "Código" },
+                { header: "Descripción" },
+                { header: "Existencia", align: "right" as const },
+                { header: "Para (días)", align: "right" as const },
+                { header: "PVD", align: "right" as const },
+                { header: "Medida Venta", align: "center" as const },
+                { header: "Estatus", align: "center" as const },
+                { header: "Pedido", align: "right" as const },
+                { header: "Medida Compra" },
+            ]
+            const base = {
+                titulo: "INVENTARIO",
+                subtitulo: `${consultado.proveedor}  ·  Días pedido: ${consultado.dias}  ·  ${fmtInt(articulosVisibles.length)} artículos${filtroArticulos.trim() ? `  ·  Filtro: "${filtroArticulos.trim()}"` : ""}`,
+                tienda,
+                columnas,
+                nombreArchivo: `inventario_${sufijoArchivo()}`,
+            }
+            const filas = articulosVisibles.map(a => [
+                a.codigoBarras,
+                a.descripcion,
+                fmtDec(a.exiActual),
+                fmtDec(a.exiPara),
+                fmtDec(a.pvd),
+                a.medidaVenta,
+                ESTATUS[a.estatus]?.etiqueta ?? String(a.estatus),
+                a.pedido,
+                a.medidaCompra,
+            ])
+            if (formato === "pdf") {
+                exportarPdf({ ...base, orientacion: "landscape", filas })
+            } else {
+                exportarExcel({ ...base, hoja: "Inventario", filas })
+            }
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Error al exportar")
+        } finally {
+            setExportando(null)
+        }
+    }
+
+    return (
+        <div className="space-y-4">
+            {/* Encabezado */}
+            <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                    <h1 className="text-2xl font-black text-white uppercase tracking-tight">Inventarios</h1>
+                    <p className="text-[12px] font-bold text-slate-500 mt-1">
+                        {cargando
+                            ? `Calculando inventario en la tienda... ${segundos}s`
+                            : consultado
+                                ? `${consultado.proveedor} · ${fmtInt(resumen.total)} artículos`
+                                : "Existencias por proveedor de tu tienda"}
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => exportar("pdf")}
+                        disabled={exportando !== null || cargando || articulosVisibles.length === 0}
+                        className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 hover:text-rose-300 hover:border-rose-500/30 font-black text-[11px] uppercase tracking-widest transition-all disabled:opacity-40"
+                        title="Imprimir a PDF"
+                    >
+                        {exportando === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                        PDF
+                    </button>
+                    <button
+                        onClick={() => exportar("excel")}
+                        disabled={exportando !== null || cargando || articulosVisibles.length === 0}
+                        className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 hover:text-emerald-300 hover:border-emerald-500/30 font-black text-[11px] uppercase tracking-widest transition-all disabled:opacity-40"
+                        title="Exportar a Excel"
+                    >
+                        {exportando === "excel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                        Excel
+                    </button>
+                </div>
+            </div>
+
+            {/* Filtros */}
+            <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 backdrop-blur-xl">
+                <div className="flex flex-wrap gap-3 items-end">
+                    <div className="flex-1 min-w-[260px] relative">
+                        <span className={lbl}>Proveedor</span>
+                        <div className="relative mt-1">
+                            <input
+                                ref={provInputRef}
+                                type="text"
+                                placeholder={cargandoProveedores ? "Cargando proveedores..." : "Escribe para buscar el proveedor"}
+                                disabled={cargandoProveedores}
+                                className={cn(inputCls, "pr-10")}
+                                value={filtroProv}
+                                onChange={e => {
+                                    setFiltroProv(e.target.value)
+                                    setProveedorSel(null)
+                                    setListaAbierta(true)
+                                }}
+                                onFocus={() => setListaAbierta(true)}
+                                onBlur={() => setListaAbierta(false)}
+                                onKeyDown={e => {
+                                    if (e.key === "Escape") setListaAbierta(false)
+                                    if (e.key === "Enter" && proveedoresFiltrados.visibles.length === 1) {
+                                        elegirProveedor(proveedoresFiltrados.visibles[0])
+                                    }
+                                }}
+                            />
+                            <button
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => { setListaAbierta(v => !v); provInputRef.current?.focus() }}
+                                className="absolute top-1/2 -translate-y-1/2 right-2 p-1.5 rounded-lg text-slate-500 hover:text-white transition-all"
+                                aria-label="Ver todos los proveedores"
+                            >
+                                <ChevronDown className={cn("h-4 w-4 transition-transform", listaAbierta && "rotate-180")} />
+                            </button>
+                        </div>
+                        {listaAbierta && !cargandoProveedores && (
+                            <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto rounded-xl bg-[#0d1320] border border-white/10 shadow-2xl shadow-black/60">
+                                {proveedoresFiltrados.visibles.length === 0 ? (
+                                    <p className="px-4 py-3 text-[12px] font-bold text-slate-500">Sin proveedores que coincidan</p>
+                                ) : (
+                                    <>
+                                        {proveedoresFiltrados.visibles.map(p => (
+                                            <button
+                                                key={p.idProveedor}
+                                                onMouseDown={e => e.preventDefault()}
+                                                onClick={() => elegirProveedor(p)}
+                                                className={cn(
+                                                    "w-full text-left px-4 py-2 text-[13px] font-bold transition-colors flex items-center justify-between gap-2",
+                                                    proveedorSel?.idProveedor === p.idProveedor
+                                                        ? "bg-emerald-500/15 text-emerald-300"
+                                                        : "text-slate-300 hover:bg-white/[0.06] hover:text-white"
+                                                )}
+                                            >
+                                                <span className="truncate">{p.proveedor}</span>
+                                                <span className="shrink-0 text-[10px] font-black text-slate-600">{p.diasPedido || "—"} d</span>
+                                            </button>
+                                        ))}
+                                        {proveedoresFiltrados.total > MAX_LISTA_PROVEEDORES && (
+                                            <p className="px-4 py-2 text-[10px] font-black text-slate-600 uppercase tracking-widest border-t border-white/[0.06]">
+                                                {fmtInt(proveedoresFiltrados.total - MAX_LISTA_PROVEEDORES)} más — afina la búsqueda
+                                            </p>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="w-32">
+                        <span className={lbl}>Días Pedido</span>
+                        <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            className={cn(inputCls, "mt-1")}
+                            value={diasPedido}
+                            onChange={e => setDiasPedido(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && buscar()}
+                        />
+                    </div>
+
+                    <button
+                        onClick={buscar}
+                        disabled={cargando || cargandoProveedores}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all disabled:opacity-40"
+                    >
+                        {cargando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        Buscar
+                    </button>
+
+                    {consultado && !cargando && (
+                        <div className="relative flex-1 min-w-[220px]">
+                            <Search className="absolute top-1/2 -translate-y-1/2 left-3.5 h-4 w-4 text-slate-500" />
+                            <input
+                                type="text"
+                                placeholder="FILTRAR ARTÍCULOS DEL RESULTADO"
+                                className={cn(inputCls, "pl-10")}
+                                value={filtroArticulos}
+                                onChange={e => setFiltroArticulos(e.target.value)}
+                            />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Resumen */}
+            {consultado && !cargando && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {[
+                        { titulo: "Artículos", valor: fmtInt(resumen.total), color: "text-white" },
+                        { titulo: "Por Pedir", valor: fmtInt(resumen.porPedir), color: resumen.porPedir > 0 ? "text-amber-300" : "text-slate-500" },
+                        { titulo: "Agotados con Demanda", valor: fmtInt(resumen.agotados), color: resumen.agotados > 0 ? "text-rose-300" : "text-slate-500" },
+                        { titulo: "Sobre-inventario", valor: fmtInt(resumen.exceso), color: resumen.exceso > 0 ? "text-rose-300" : "text-slate-500" },
+                    ].map(c => (
+                        <div key={c.titulo} className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 backdrop-blur-xl">
+                            <p className={lbl}>{c.titulo}</p>
+                            <p className={cn("text-lg font-black mt-1", c.color)}>{c.valor}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {error && (
+                <div className="flex items-center gap-2 text-rose-300 text-[11px] font-black bg-rose-500/10 p-3 rounded-xl border border-rose-500/25 uppercase tracking-wider">
+                    <AlertTriangle className="h-4 w-4" /> {error}
+                </div>
+            )}
+
+            {/* Tabla */}
+            <div className="bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl overflow-hidden">
+                {cargando ? (
+                    <div className="flex flex-col items-center justify-center py-24 gap-4">
+                        <Loader2 className="h-7 w-7 text-emerald-400 animate-spin" />
+                        <div className="text-center">
+                            <p className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">
+                                Calculando inventario en la tienda... {segundos}s
+                            </p>
+                            <p className="text-[11px] font-bold text-slate-600 mt-1">
+                                El servicio suma recibos, ventas, transferencias y ajustes — puede tardar hasta 2 minutos
+                            </p>
+                        </div>
+                    </div>
+                ) : !consultado ? (
+                    <div className="flex flex-col items-center justify-center py-24 gap-3">
+                        <Boxes className="h-8 w-8 text-slate-700" />
+                        <p className="text-[12px] font-bold text-slate-600 uppercase tracking-widest">
+                            Elige un proveedor y presiona Buscar
+                        </p>
+                    </div>
+                ) : articulosVisibles.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-24 gap-3">
+                        <Boxes className="h-8 w-8 text-slate-700" />
+                        <p className="text-[12px] font-bold text-slate-600 uppercase tracking-widest">
+                            {articulos.length === 0 ? "Sin artículos para el proveedor" : "Sin artículos que coincidan con el filtro"}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="overflow-auto max-h-[calc(100vh-24rem)]">
+                        <table className="w-full">
+                            <thead className="sticky top-0 z-10 bg-[#10151f] shadow-[0_1px_0_rgba(255,255,255,0.08)]">
+                                <tr>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-left")}>Código</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-left")}>Descripción</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-right")}>Existencia</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-right")}>Para</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-right")} title="Promedio de venta diaria">PVD</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-center")}>Medida Venta</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-center")}>Estatus</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-right")}>Pedido</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-left")}>Medida Compra</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/[0.04]">
+                                {articulosVisibles.map(a => {
+                                    const estatus = ESTATUS[a.estatus] ?? ESTATUS[4]
+                                    return (
+                                        <tr
+                                            key={`${a.codigoInterno}-${a.codigoBarras}`}
+                                            onClick={() => verMovimientos(a)}
+                                            className="cursor-pointer transition-colors hover:bg-white/[0.03]"
+                                            title="Ver movimientos del artículo"
+                                        >
+                                            <td className="px-4 py-2.5 text-[12px] font-black text-cyan-300 whitespace-nowrap">{a.codigoBarras}</td>
+                                            <td className="px-4 py-2.5 text-[13px] font-bold text-slate-200 max-w-[280px] truncate" title={a.descripcion}>
+                                                {a.descripcion}
+                                            </td>
+                                            <td className={cn(
+                                                "px-4 py-2.5 text-[13px] font-black text-right whitespace-nowrap",
+                                                a.exiActual <= 0 ? "text-rose-300" : "text-slate-100"
+                                            )}>
+                                                {fmtDec(a.exiActual)}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-[12px] font-bold text-slate-400 text-right whitespace-nowrap">
+                                                {fmtDec(a.exiPara)} días
+                                            </td>
+                                            <td className="px-4 py-2.5 text-[12px] font-bold text-slate-400 text-right whitespace-nowrap">{fmtDec(a.pvd)}</td>
+                                            <td className="px-4 py-2.5 text-[12px] font-bold text-slate-400 text-center whitespace-nowrap">{a.medidaVenta || "—"}</td>
+                                            <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                                                <span
+                                                    className={cn("text-[10px] font-black rounded-md px-2 py-0.5 border uppercase", estatus.cls)}
+                                                    title={estatus.titulo}
+                                                >
+                                                    {estatus.etiqueta}
+                                                </span>
+                                            </td>
+                                            <td className={cn(
+                                                "px-4 py-2.5 text-[13px] font-black text-right whitespace-nowrap",
+                                                a.pedidoSugerido > 0 ? "text-amber-300" : "text-slate-500"
+                                            )}
+                                                title={a.pedidoTransito > 0 ? `${a.pedidoTransito} en tránsito` : ""}
+                                            >
+                                                {a.pedido || "—"}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-[12px] font-bold text-slate-400 whitespace-nowrap">{a.medidaCompra || "—"}</td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
+            {/* Modal de movimientos */}
+            {movArticulo && (
+                <div
+                    className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setMovArticulo(null)}
+                >
+                    <div
+                        className="w-full max-w-5xl max-h-[85vh] bg-[#0d1320] border border-white/10 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 border-b border-white/10 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h3 className="text-[15px] font-black text-white truncate">
+                                    Movimientos — {movArticulo.descripcion}
+                                </h3>
+                                <p className="text-[12px] font-bold text-slate-400 mt-1">
+                                    Código {movArticulo.codigoBarras} · Existencia actual: {fmtDec(movArticulo.exiActual)} {movArticulo.medidaVenta}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setMovArticulo(null)}
+                                className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+
+                        {cargandoMov ? (
+                            <div className="flex items-center justify-center py-24">
+                                <Loader2 className="h-7 w-7 text-emerald-400 animate-spin" />
+                            </div>
+                        ) : movimientos.length === 0 ? (
+                            <div className="flex items-center justify-center py-16">
+                                <p className="text-[12px] font-bold text-slate-600 uppercase tracking-widest">
+                                    Sin movimientos registrados para el artículo
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="overflow-auto flex-1">
+                                    <table className="w-full">
+                                        <thead className="sticky top-0 z-10 bg-[#141a28]">
+                                            <tr>
+                                                <th className={cn(lbl, "px-4 py-2.5 text-left")}>Fecha</th>
+                                                <th className={cn(lbl, "px-4 py-2.5 text-left")}>Concepto</th>
+                                                <th className={cn(lbl, "px-4 py-2.5 text-left")}>Usuario</th>
+                                                <th className={cn(lbl, "px-4 py-2.5 text-right")}>Real</th>
+                                                <th className={cn(lbl, "px-4 py-2.5 text-right")}>Equiv</th>
+                                                <th className={cn(lbl, "px-4 py-2.5 text-center")}>Medida</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/[0.04]">
+                                            {movimientos.map((m, i) => (
+                                                <tr key={i} className="hover:bg-white/[0.03]">
+                                                    <td className="px-4 py-2 text-[12px] font-bold text-slate-400 whitespace-nowrap">{fmtFechaHora(m.fecha)}</td>
+                                                    <td className="px-4 py-2 text-[12px] font-bold text-slate-300 max-w-[320px] truncate" title={m.concepto}>
+                                                        {m.concepto || "—"}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-[12px] font-bold text-slate-500 whitespace-nowrap">{m.usuario || "—"}</td>
+                                                    <td className={cn(
+                                                        "px-4 py-2 text-[13px] font-black text-right whitespace-nowrap",
+                                                        m.mov < 0 ? "text-rose-300" : "text-emerald-300"
+                                                    )}>
+                                                        {fmtDec(m.mov)}
+                                                    </td>
+                                                    <td className={cn(
+                                                        "px-4 py-2 text-[12px] font-bold text-right whitespace-nowrap",
+                                                        m.equiv < 0 ? "text-rose-300/80" : "text-slate-400"
+                                                    )}>
+                                                        {fmtDec(m.equiv)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-[12px] font-bold text-slate-400 text-center whitespace-nowrap">{m.medidaVenta || "—"}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="px-6 py-3 border-t border-white/10 flex justify-end">
+                                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                                        {fmtInt(movimientos.length)} movimientos
+                                    </p>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
