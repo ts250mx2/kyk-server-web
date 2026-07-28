@@ -130,6 +130,17 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   estimada y link directo. En Quiebres/Sobre-inventario el **costo autorizado es
   `tblArticulos.UltimoCosto`** del MySQL de tienda (el Costo del central solo ordena el recorte).
 
+- **Inventarios → Quiebre de Stock** (`/dashboard/inventarios/quiebre-stock`): port de la
+  pantalla Quiebres de Stock de kyk-dashboard, con los datos del corte central. Un quiebre es un
+  SKU con existencia ≤ umbral (segmentado: =0 / ≤1 / ≤2 / ≤5) **y** demanda reciente (PVD > 0).
+  Venta/día = PVD × precio; venta perdida = venta/día × horizonte (7/14/30 días); severidad por
+  venta/día (≥$1,000 crítico, ≥$200 alto). KPIs (SKUs en quiebre del total con venta, venta y
+  utilidad perdida proyectadas, unidades faltantes), top 10 por venta perdida con barras,
+  desglose por departamento, tabla ordenable (venta perdida, venta/día, PVD, stock, días en
+  quiebre) agrupable por SKU/departamento, búsqueda, export PDF/Excel y Análisis Profundo IA.
+  Extras sobre el original: días en quiebre de los últimos 30 días (histórico central) y
+  utilidad perdida con `tblArticulos.UltimoCosto`.
+
 - **Inventarios → Quiebres y Sobre-inventario** (`/dashboard/inventarios/quiebres`): análisis
   sobre el **corte nocturno consolidado en el MySQL central** (`tblInventariosCostosActual` /
   `tblInventariosCostos`, pobladas por KYKInvServices con IdTienda; frescura en
