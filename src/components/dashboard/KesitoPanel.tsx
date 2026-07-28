@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Loader2, RotateCcw, Send, Sparkles, X } from "lucide-react"
+import { Loader2, RotateCcw, Send, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface MensajeKesito {
@@ -33,11 +33,11 @@ function conversacionGuardada(): MensajeKesito[] {
     }
 }
 
-// Burbuja flotante con el agente Kesito: consulta /api/chat/kesito, que solo ve
-// los datos de la tienda de la sesión.
-export function KesitoChat() {
+// Panel de conversación del canal "Kesito" del chat: consulta /api/chat/kesito,
+// que solo ve los datos de la tienda de la sesión. La conversación es local al
+// navegador (no se guarda en BDKYKPortal como los canales entre tiendas).
+export function KesitoPanel() {
     const router = useRouter()
-    const [abierto, setAbierto] = useState(false)
     const [mensajes, setMensajes] = useState<MensajeKesito[]>(conversacionGuardada)
     const [texto, setTexto] = useState("")
     const [cargando, setCargando] = useState(false)
@@ -56,18 +56,11 @@ export function KesitoChat() {
     useEffect(() => {
         const el = contenedorRef.current
         if (el) el.scrollTop = el.scrollHeight
-    }, [mensajes, cargando, abierto])
+    }, [mensajes, cargando])
 
-    // Foco al abrir y cierre con Escape
     useEffect(() => {
-        if (!abierto) return
         entradaRef.current?.focus()
-        const alTeclear = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setAbierto(false)
-        }
-        window.addEventListener("keydown", alTeclear)
-        return () => window.removeEventListener("keydown", alTeclear)
-    }, [abierto])
+    }, [])
 
     const enviar = async (sugerencia?: string) => {
         const pregunta = (sugerencia ?? texto).trim().slice(0, MAX_MENSAJE)
@@ -103,36 +96,19 @@ export function KesitoChat() {
         entradaRef.current?.focus()
     }
 
-    if (!abierto) {
-        return (
-            <button
-                onClick={() => setAbierto(true)}
-                className="fixed bottom-5 right-5 z-50 h-14 w-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/25 border border-amber-300/50 flex items-center justify-center text-2xl hover:scale-105 hover:brightness-105 transition-all"
-                title="Pregúntale a Kesito"
-                aria-label="Abrir el chat de Kesito"
-            >
-                <span aria-hidden>🧀</span>
-            </button>
-        )
-    }
-
     return (
-        <div
-            className="fixed bottom-5 right-5 z-50 w-[min(26rem,calc(100vw-2.5rem))] h-[min(38rem,calc(100dvh-6.5rem))] flex flex-col rounded-2xl bg-[#0a101c]/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden"
-            role="dialog"
-            aria-label="Chat con Kesito"
-        >
+        <div className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl flex flex-col overflow-hidden">
             {/* Encabezado */}
-            <div className="px-4 py-3 border-b border-white/[0.06] bg-amber-500/[0.06] flex items-center gap-3">
-                <div className="h-9 w-9 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-lg shrink-0">
+            <div className="px-5 py-3 border-b border-white/[0.06] bg-amber-500/[0.06] flex items-center gap-3">
+                <div className="h-8 w-8 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-base shrink-0">
                     <span aria-hidden>🧀</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-black text-white leading-none flex items-center gap-1.5">
+                    <h2 className="text-[13px] font-black text-white uppercase tracking-widest leading-none flex items-center gap-1.5">
                         Kesito <Sparkles className="h-3 w-3 text-amber-400" />
-                    </p>
+                    </h2>
                     <p className="text-[9px] font-bold text-amber-400/70 uppercase tracking-widest mt-1">
-                        Agente de tu tienda
+                        Agente de tu tienda · conversación privada
                     </p>
                 </div>
                 {mensajes.length > 0 && (
@@ -145,22 +121,14 @@ export function KesitoChat() {
                         <RotateCcw className="h-3.5 w-3.5" />
                     </button>
                 )}
-                <button
-                    onClick={() => setAbierto(false)}
-                    className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-rose-300 hover:border-rose-500/30 transition-all"
-                    title="Cerrar (Esc)"
-                    aria-label="Cerrar el chat"
-                >
-                    <X className="h-3.5 w-3.5" />
-                </button>
             </div>
 
             {/* Conversación */}
             <div ref={contenedorRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {mensajes.length === 0 && !cargando ? (
-                    <div className="h-full flex flex-col items-center justify-center gap-4 px-2 text-center">
+                    <div className="h-full flex flex-col items-center justify-center gap-4 px-4 text-center">
                         <span className="text-4xl" aria-hidden>🧀</span>
-                        <p className="text-[12px] font-bold text-slate-500">
+                        <p className="text-[12px] font-bold text-slate-500 max-w-md">
                             Pregúntame por precios, ofertas, ventas del día, cortes, recibos,
                             transferencias, facturas o devoluciones de <span className="text-amber-300">tu tienda</span>.
                         </p>
@@ -179,15 +147,22 @@ export function KesitoChat() {
                 ) : (
                     mensajes.map((m, i) => (
                         <div key={i} className={cn("flex", m.rol === "user" ? "justify-end" : "justify-start")}>
-                            <div className={cn(
-                                "max-w-[85%] rounded-2xl px-3.5 py-2.5 border",
-                                m.rol === "user"
-                                    ? "bg-emerald-500/15 border-emerald-500/25 rounded-br-md"
-                                    : "bg-white/[0.05] border-white/10 rounded-bl-md"
-                            )}>
-                                <p className="text-[13px] font-medium text-slate-100 whitespace-pre-wrap break-words">
-                                    {m.texto}
-                                </p>
+                            <div className="max-w-[78%]">
+                                {m.rol === "assistant" && (
+                                    <p className="text-[10px] font-black text-amber-400/80 uppercase tracking-wider mb-0.5 px-1">
+                                        Kesito
+                                    </p>
+                                )}
+                                <div className={cn(
+                                    "rounded-2xl px-3.5 py-2.5 border",
+                                    m.rol === "user"
+                                        ? "bg-emerald-500/15 border-emerald-500/25 rounded-br-md"
+                                        : "bg-white/[0.05] border-white/10 rounded-bl-md"
+                                )}>
+                                    <p className="text-[13px] font-medium text-slate-100 whitespace-pre-wrap break-words">
+                                        {m.texto}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     ))
@@ -209,12 +184,12 @@ export function KesitoChat() {
             )}
 
             {/* Composer */}
-            <div className="px-3 py-3 border-t border-white/[0.06] flex items-end gap-2">
+            <div className="px-4 py-3 border-t border-white/[0.06] flex items-end gap-2">
                 <textarea
                     ref={entradaRef}
                     rows={1}
                     maxLength={MAX_MENSAJE}
-                    placeholder="Pregúntale a Kesito..."
+                    placeholder="Pregúntale a Kesito... (Enter para enviar)"
                     className="flex-1 resize-none px-4 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-sm font-medium text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-400/25 focus:border-amber-400/60 transition-all max-h-28"
                     value={texto}
                     onChange={e => setTexto(e.target.value)}

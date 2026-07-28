@@ -1,9 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Loader2, Send, ImagePlus, X, Hash, Store, MessageSquare } from "lucide-react"
+import { Loader2, Send, ImagePlus, X, Hash, Store, MessageSquare, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt } from "@/lib/format"
+import { KesitoPanel } from "@/components/dashboard/KesitoPanel"
 
 interface Canal { canal: string; nombre: string; noLeidos: number }
 interface Mensaje {
@@ -19,6 +20,9 @@ interface TiendaOption { IdTienda: number; Tienda: string }
 
 const POLL_MENSAJES_MS = 5_000
 const POLL_CANALES_MS = 15_000
+
+// Canal fijo del agente Kesito: no existe en BDKYKPortal, se atiende localmente
+const CANAL_KESITO = "kesito"
 
 const hora = (v: string) => {
     const d = new Date(v)
@@ -88,7 +92,7 @@ export default function ChatPage() {
 
     // Cambio de canal: carga inicial y polling incremental cada 5 s
     useEffect(() => {
-        if (!canalSel) return
+        if (!canalSel || canalSel === CANAL_KESITO) return
         canalRef.current = canalSel
         ultimoIdRef.current = 0
         setMensajes([])
@@ -174,6 +178,21 @@ export default function ChatPage() {
                     </h2>
                 </div>
                 <div className="p-2 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-x-hidden">
+                    <button
+                        onClick={() => setCanalSel(CANAL_KESITO)}
+                        className={cn(
+                            "flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-left transition-all shrink-0 lg:shrink lg:w-full",
+                            canalSel === CANAL_KESITO
+                                ? "bg-amber-500/15 border border-amber-500/30 text-amber-300"
+                                : "text-slate-400 hover:bg-white/[0.05] hover:text-white border border-transparent"
+                        )}
+                    >
+                        <span className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm leading-none" aria-hidden>🧀</span>
+                            <span className="text-[12px] font-black truncate">Kesito</span>
+                        </span>
+                        <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-400/70" />
+                    </button>
                     {canales.map(c => (
                         <button
                             key={c.canal}
@@ -201,7 +220,10 @@ export default function ChatPage() {
                 </div>
             </div>
 
-            {/* Conversación */}
+            {/* Conversación: el canal Kesito se atiende con el agente, el resto con BDKYKPortal */}
+            {canalSel === CANAL_KESITO ? (
+                <KesitoPanel />
+            ) : (
             <div className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl flex flex-col overflow-hidden">
                 <div className="px-5 py-3 border-b border-white/[0.06] flex items-center gap-2">
                     {canalActivo?.canal === "general"
@@ -333,6 +355,7 @@ export default function ChatPage() {
                     </button>
                 </div>
             </div>
+            )}
         </div>
     )
 }

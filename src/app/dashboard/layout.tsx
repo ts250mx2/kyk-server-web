@@ -3,7 +3,6 @@
 import React, { useState } from "react"
 import { Sidebar } from "@/components/dashboard/Sidebar"
 import { Header } from "@/components/dashboard/Header"
-import { KesitoChat } from "@/components/dashboard/KesitoChat"
 import { cn } from "@/lib/utils"
 
 export default function DashboardLayout({
@@ -35,9 +34,6 @@ export default function DashboardLayout({
                     </div>
                 </main>
             </div>
-
-            {/* Kesito: agente de la tienda, disponible en todo el dashboard */}
-            <KesitoChat />
         </div>
     )
 }

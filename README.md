@@ -159,17 +159,19 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   IdMensaje) y badges cada 15 s — robusto ante los cortes de VPN nocturnos; SSE queda como
   mejora futura. Burbujas con nombre y tienda del emisor, Enter envía, Shift+Enter salto.
 
-- **Kesito** (burbuja flotante en todo el dashboard): fase 4 del portal — agente inteligente de
-  la tienda. Widget de chat ([src/components/dashboard/KesitoChat.tsx](src/components/dashboard/KesitoChat.tsx))
-  contra `/api/chat/kesito`, que corre un loop agéntico con **Claude Sonnet** (`@anthropic-ai/sdk`,
+- **Comunicación → Chat → canal Kesito**: fase 4 del portal — agente inteligente de la tienda,
+  como canal fijo al inicio de la lista de canales del chat (no existe en BDKYKPortal; la
+  conversación es local al navegador, en `sessionStorage`). El panel
+  ([src/components/dashboard/KesitoPanel.tsx](src/components/dashboard/KesitoPanel.tsx)) consulta
+  `/api/chat/kesito`, que corre un loop agéntico con **Claude Sonnet** (`@anthropic-ai/sdk`,
   requiere `ANTHROPIC_API_KEY` en `.env`; sin ella responde 503). Las herramientas del agente son
   las **propias APIs del portal** invocadas con la cookie de la sesión, así que solo ve datos de
   la tienda conectada: resumen del día, precios y detalle de artículos, ofertas, precios de
   báscula, cortes de caja, recibos, transferencias, facturas y devoluciones (venta y compra).
   El system prompt lo acota estrictamente a ese alcance (nada de SQL libre ni temas generales).
   Resultados compactados (listas recortadas + tope de 12 KB) para controlar tokens; máx. 6
-  iteraciones de herramientas y últimos 12 mensajes de historial. La conversación persiste en
-  `sessionStorage`; sugerencias de arranque, Enter envía, Esc cierra.
+  iteraciones de herramientas y últimos 12 mensajes de historial. Sugerencias de arranque,
+  indicador de "escribiendo", botón de nueva conversación y Enter envía.
 
 ### Exportación (Precios y Ofertas)
 
