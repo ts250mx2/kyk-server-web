@@ -61,10 +61,54 @@ export async function GET(request: Request) {
             diasQuiebrePorCodigo.set(num(h.CodigoInterno), num(h.DiasQuiebre));
         }
 
-        // Denominador del KPI: SKUs con demanda reciente en el corte
-        const conVenta = snapshotRows.filter(r => num(r.PVD) > 0);
+        // Consolidación de kits, misma lógica del webservice KYKInventariosWeb:
+        // en tblKits el hijo (CodigoInterno) vende con su código pero el
+        // inventario vive en el maestro (CodigoInterno2); Mov/Factor lo
+        // convierte a unidades del maestro. El corte Fast ya consolida, pero si
+        // trae filas de variantes (ligas de kit dadas de alta después de generar
+        // historial, o faltantes en la tienda) el hijo solo acumula salidas y se
+        // ve "roto" para siempre: aquí se pliega al maestro en vez de listarse.
+        const kitsRows = (await tiendaQuery(
+            idTienda,
+            'SELECT CodigoInterno, CodigoInterno2, Factor FROM tblKits',
+            []
+        ).catch(() => [])) as Row[];
+        const padreDe = new Map<number, { padre: number; factor: number }>();
+        for (const k of kitsRows ?? []) {
+            const hijo = num(k.CodigoInterno);
+            const padre = num(k.CodigoInterno2);
+            const factor = num(k.Factor) > 0 ? num(k.Factor) : 1;
+            if (hijo > 0 && padre > 0 && hijo !== padre) padreDe.set(hijo, { padre, factor });
+        }
+        const resolverMaestro = (codigo: number): { maestro: number; factor: number } => {
+            let actual = codigo;
+            let factor = 1;
+            // Kits de kits: hasta 5 saltos con guardia de ciclos, como la recursión del Java
+            for (let salto = 0; salto < 5; salto++) {
+                const liga = padreDe.get(actual);
+                if (!liga || liga.padre === codigo) break;
+                actual = liga.padre;
+                factor *= liga.factor;
+            }
+            return { maestro: actual, factor };
+        };
+
+        const consolidado = new Map<number, { exi: number; pvd: number; variantes: number }>();
+        for (const r of snapshotRows) {
+            const codigo = num(r.CodigoInterno);
+            const { maestro, factor } = resolverMaestro(codigo);
+            const acumulado = consolidado.get(maestro) ?? { exi: 0, pvd: 0, variantes: 0 };
+            consolidado.set(maestro, {
+                exi: acumulado.exi + num(r.Exi) / factor,
+                pvd: acumulado.pvd + num(r.PVD) / factor,
+                variantes: acumulado.variantes + (maestro !== codigo ? 1 : 0),
+            });
+        }
+
+        // Denominador del KPI: SKUs (ya consolidados) con demanda reciente
+        const conVenta = [...consolidado.entries()].filter(([, v]) => v.pvd > 0);
         let candidatos = conVenta
-            .map(r => ({ codigo: num(r.CodigoInterno), exi: num(r.Exi), pvd: num(r.PVD) }))
+            .map(([codigo, v]) => ({ codigo, exi: v.exi, pvd: v.pvd, variantes: v.variantes }))
             .filter(c => c.exi <= umbral)
             .sort((a, b) => b.pvd - a.pvd);
         const truncado = candidatos.length > MAX_FILAS;
@@ -102,6 +146,7 @@ export async function GET(request: Request) {
                     medidaVenta: String(a.MedidaVenta ?? '').trim(),
                     stock: c.exi,
                     pvd: c.pvd,
+                    variantes: c.variantes,
                     precio,
                     diasQuiebre: diasQuiebrePorCodigo.get(c.codigo) ?? 0,
                     ventaDiaria,

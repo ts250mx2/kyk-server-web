@@ -19,6 +19,7 @@ interface ItemQuiebre {
     medidaVenta: string
     stock: number
     pvd: number
+    variantes: number
     precio: number
     diasQuiebre: number
     ventaDiaria: number
@@ -87,6 +88,8 @@ export default function QuiebreStockPage() {
     const [cargando, setCargando] = useState(true)
     const [error, setError] = useState("")
     const [busqueda, setBusqueda] = useState("")
+    // Drill-down: clic en un departamento acota el detalle a sus artículos
+    const [deptoSel, setDeptoSel] = useState("")
     const [agrupar, setAgrupar] = useState<Agrupar>("sku")
     const [orden, setOrden] = useState<OrdenKey>("ventaPerdida")
     const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null)
@@ -137,10 +140,11 @@ export default function QuiebreStockPage() {
     const visibles = useMemo(() => {
         const filtro = busqueda.trim().toLowerCase()
         const lista = (datos?.items ?? []).filter(i =>
-            !filtro ||
-            i.descripcion.toLowerCase().includes(filtro) ||
-            i.codigoBarras.includes(filtro) ||
-            i.depto.toLowerCase().includes(filtro)
+            (!deptoSel || (i.depto || "(sin depto)") === deptoSel) &&
+            (!filtro ||
+                i.descripcion.toLowerCase().includes(filtro) ||
+                i.codigoBarras.includes(filtro) ||
+                i.depto.toLowerCase().includes(filtro))
         )
         return [...lista].sort((a, b) => {
             switch (orden) {
@@ -151,7 +155,12 @@ export default function QuiebreStockPage() {
                 default: return b.ventaPerdida - a.ventaPerdida
             }
         })
-    }, [datos, busqueda, orden])
+    }, [datos, busqueda, deptoSel, orden])
+
+    const elegirDepto = (depto: string) => {
+        setDeptoSel(depto)
+        setAgrupar("sku")
+    }
 
     const porDeptoVisibles = useMemo(() => {
         if (agrupar !== "depto") return []
@@ -211,7 +220,7 @@ export default function QuiebreStockPage() {
             const nombreTienda = tienda || await obtenerTiendaSesion()
             const base = {
                 titulo: "QUIEBRE DE STOCK",
-                subtitulo: `Stock ≤ ${datos.umbral} · Proyección ${datos.horizonte} días · Corte ${datos.corteFecha} · ${fmtInt(visibles.length)} SKUs`,
+                subtitulo: `Stock ≤ ${datos.umbral} · Proyección ${datos.horizonte} días · Corte ${datos.corteFecha}${deptoSel ? ` · Depto: ${deptoSel}` : ""} · ${fmtInt(visibles.length)} SKUs`,
                 tienda: nombreTienda,
                 columnas: [
                     { header: "Código" },
@@ -357,6 +366,15 @@ export default function QuiebreStockPage() {
                         <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/25 text-[10px] font-black text-rose-300 uppercase tracking-wider">
                             <PackageX className="h-3 w-3" /> {datos.umbral === 0 ? "Stock = 0" : `Stock ≤ ${datos.umbral}`}
                         </span>
+                        {deptoSel && (
+                            <button
+                                onClick={() => setDeptoSel("")}
+                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-[10px] font-black text-cyan-300 uppercase tracking-wider hover:bg-cyan-500/20 transition-all"
+                                title="Quitar el filtro de departamento"
+                            >
+                                <Layers className="h-3 w-3" /> {deptoSel} ✕
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
@@ -452,9 +470,19 @@ export default function QuiebreStockPage() {
                                 <h3 className="text-[12px] font-black text-slate-300 uppercase tracking-widest mb-4 flex items-center gap-2">
                                     <Layers className="h-4 w-4 text-cyan-400" /> Por departamento
                                 </h3>
-                                <div className="space-y-2.5">
+                                <div className="space-y-1">
                                     {datos.porDepto.slice(0, 8).map(d => (
-                                        <div key={d.depto}>
+                                        <button
+                                            key={d.depto}
+                                            onClick={() => elegirDepto(d.depto)}
+                                            className={cn(
+                                                "w-full text-left rounded-xl px-2 py-1.5 transition-colors border",
+                                                deptoSel === d.depto
+                                                    ? "bg-cyan-500/10 border-cyan-500/25"
+                                                    : "border-transparent hover:bg-white/[0.04]"
+                                            )}
+                                            title={`Ver los artículos de ${d.depto}`}
+                                        >
                                             <div className="flex items-center justify-between gap-3 mb-1">
                                                 <p className="text-[12px] font-bold text-slate-300 truncate min-w-0">{d.depto}</p>
                                                 <p className="text-[11px] font-black text-slate-400 whitespace-nowrap">
@@ -467,7 +495,7 @@ export default function QuiebreStockPage() {
                                                     style={{ width: `${(d.ventaPerdida / maxDeptoVenta) * 100}%` }}
                                                 />
                                             </div>
-                                        </div>
+                                        </button>
                                     ))}
                                 </div>
                             </div>
@@ -540,6 +568,9 @@ export default function QuiebreStockPage() {
                                                                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
                                                                     <span className="text-cyan-300">{it.codigoBarras}</span>
                                                                     {it.depto && ` · ${it.depto}`}
+                                                                    {it.variantes > 0 && (
+                                                                        <span className="text-violet-300"> · incluye {it.variantes} variante{it.variantes > 1 ? "s" : ""} de kit</span>
+                                                                    )}
                                                                 </p>
                                                             </td>
                                                             <td className="px-4 py-2.5 text-center whitespace-nowrap">
@@ -576,7 +607,12 @@ export default function QuiebreStockPage() {
                                             </thead>
                                             <tbody className="divide-y divide-white/[0.04]">
                                                 {porDeptoVisibles.map(d => (
-                                                    <tr key={d.depto} className="hover:bg-white/[0.03]">
+                                                    <tr
+                                                        key={d.depto}
+                                                        onClick={() => elegirDepto(d.depto)}
+                                                        className="hover:bg-white/[0.03] cursor-pointer"
+                                                        title={`Ver los artículos de ${d.depto}`}
+                                                    >
                                                         <td className="px-4 py-2.5 text-[13px] font-bold text-slate-200">{d.depto}</td>
                                                         <td className="px-4 py-2.5 text-[13px] font-black text-slate-300 text-right">{fmtInt(d.skus)}</td>
                                                         <td className="px-4 py-2.5 text-[13px] font-black text-rose-300 text-right">{fmtMoney(d.ventaPerdida)}</td>
