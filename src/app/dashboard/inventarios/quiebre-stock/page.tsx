@@ -352,7 +352,12 @@ export default function QuiebreStockPage() {
             <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 backdrop-blur-xl space-y-3">
                 <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
                     <div>
-                        <span className={lbl}>Umbral de stock</span>
+                        <span
+                            className={lbl}
+                            title="Existencia máxima para considerar un artículo en quiebre: = 0 solo agotados; ≤ N incluye también los que están a punto de agotarse"
+                        >
+                            Umbral de stock
+                        </span>
                         <div className="flex items-center rounded-xl bg-white/[0.03] border border-white/10 p-1 mt-1">
                             {UMBRALES.map(u => (
                                 <button
@@ -392,6 +397,14 @@ export default function QuiebreStockPage() {
                         </div>
                     </div>
                 </div>
+                <p className="text-[10px] font-bold text-slate-600 leading-relaxed">
+                    El <span className="text-slate-400">umbral</span> define qué se considera quiebre:
+                    {" "}<span className="text-rose-300">= 0</span> lista solo artículos totalmente agotados;
+                    {" "}<span className="text-rose-300">≤ 1 / ≤ 2 / ≤ 5</span> incluye también los que están a punto
+                    de agotarse (existencia igual o menor al umbral). Solo cuentan artículos con venta reciente.
+                    El <span className="text-slate-400">horizonte</span> proyecta la venta que se perdería en esos
+                    días si no se resurte.
+                </p>
                 {datos && (
                     <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/[0.06]">
                         <span className={lbl}>Filtros:</span>
