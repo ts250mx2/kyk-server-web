@@ -30,7 +30,6 @@ interface ItemQuiebre {
 
 interface Datos {
     corteFecha: string
-    actualizado: string | null
     umbral: number
     horizonte: number
     truncado: boolean

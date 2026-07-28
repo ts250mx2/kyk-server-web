@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     const idTienda = session.idTienda;
 
     try {
-        const [snapshotRows, historicoRows, marcadores] = await Promise.all([
+        const [snapshotRows, historicoRows] = await Promise.all([
             mysqlQuery(`
                 SELECT CodigoInterno, Exi, PVD, Fecha
                 FROM tblInventariosCostosActual WHERE IdTienda = ?
@@ -46,9 +46,6 @@ export async function GET(request: Request) {
                 WHERE IdTienda = ? AND Fecha >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
                 GROUP BY CodigoInterno
             `, [idTienda, DIAS_HISTORICO]).catch(() => []) as Promise<Row[]>,
-            mysqlQuery(`
-                SELECT FechaActEstadoInventarios FROM tblActualizacionesTiendas WHERE IdTienda = ? LIMIT 1
-            `, [idTienda]).catch(() => []) as Promise<Row[]>,
         ]);
 
         if (!snapshotRows || snapshotRows.length === 0) {
@@ -59,9 +56,6 @@ export async function GET(request: Request) {
         }
 
         const corteFecha = String(snapshotRows[0].Fecha ?? '').slice(0, 10);
-        const actualizado = marcadores?.[0]?.FechaActEstadoInventarios
-            ? String(marcadores[0].FechaActEstadoInventarios)
-            : null;
         const diasQuiebrePorCodigo = new Map<number, number>();
         for (const h of historicoRows ?? []) {
             diasQuiebrePorCodigo.set(num(h.CodigoInterno), num(h.DiasQuiebre));
@@ -135,7 +129,6 @@ export async function GET(request: Request) {
 
         return NextResponse.json({
             corteFecha,
-            actualizado,
             umbral,
             horizonte,
             truncado,

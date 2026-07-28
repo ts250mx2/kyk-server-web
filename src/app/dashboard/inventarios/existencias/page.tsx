@@ -29,7 +29,6 @@ interface Existencia {
         origen: "corte" | "ajuste" | "sin-corte"
         desde: string
         snapshotFecha: string | null
-        actualizadoTienda: string | null
     }
     desdeElCorte: { entradas: number; salidas: number }
     variantesKit: number

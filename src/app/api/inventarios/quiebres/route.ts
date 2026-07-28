@@ -38,15 +38,10 @@ export async function GET(request: Request) {
     const idTienda = session.idTienda;
 
     try {
-        const [snapshotRows, marcadores] = await Promise.all([
-            mysqlQuery(`
-                SELECT CodigoInterno, Exi, PVD, Costo, Fecha
-                FROM tblInventariosCostosActual WHERE IdTienda = ?
-            `, [idTienda]) as Promise<Row[]>,
-            mysqlQuery(`
-                SELECT FechaActEstadoInventarios FROM tblActualizacionesTiendas WHERE IdTienda = ? LIMIT 1
-            `, [idTienda]).catch(() => []) as Promise<Row[]>,
-        ]);
+        const snapshotRows = (await mysqlQuery(`
+            SELECT CodigoInterno, Exi, PVD, Costo, Fecha
+            FROM tblInventariosCostosActual WHERE IdTienda = ?
+        `, [idTienda])) as Row[];
 
         if (!snapshotRows || snapshotRows.length === 0) {
             return NextResponse.json(
@@ -56,9 +51,6 @@ export async function GET(request: Request) {
         }
 
         const corteFecha = String(snapshotRows[0].Fecha ?? '').slice(0, 10);
-        const actualizado = marcadores?.[0]?.FechaActEstadoInventarios
-            ? String(marcadores[0].FechaActEstadoInventarios)
-            : null;
 
         // Preselección y orden con datos del central; nombres/estatus al final
         interface Candidato {
@@ -141,7 +133,7 @@ export async function GET(request: Request) {
 
             const enQuiebreHoy = filas.filter(f => f.enQuiebreHoy);
             return NextResponse.json({
-                tipo, corteFecha, actualizado, dias, truncado,
+                tipo, corteFecha, dias, truncado,
                 articulos: filas,
                 resumen: {
                     enQuiebreHoy: enQuiebreHoy.length,
@@ -174,7 +166,7 @@ export async function GET(request: Request) {
 
         const sinVenta = filas.filter(f => f.sinVenta);
         return NextResponse.json({
-            tipo, corteFecha, actualizado, umbral, truncado,
+            tipo, corteFecha, umbral, truncado,
             articulos: filas,
             resumen: {
                 articulos: filas.length,

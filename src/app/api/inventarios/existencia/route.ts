@@ -36,7 +36,7 @@ export async function GET(request: Request) {
 
     try {
         // Artículo + familia de kits (variantes que descuentan al padre)
-        const [articulos, kits, snapshots, marcadores] = await Promise.all([
+        const [articulos, kits, snapshots] = await Promise.all([
             tiendaQuery(idTienda, `
                 SELECT CodigoInterno, CodigoBarras, Descripcion, MedidaVenta, MedidaCompra, Precio, UltimoCosto, Status
                 FROM tblArticulos WHERE CodigoInterno = ? LIMIT 1
@@ -48,9 +48,6 @@ export async function GET(request: Request) {
                 SELECT Exi, PVD, Costo, Fecha FROM tblInventariosCostosActual
                 WHERE IdTienda = ? AND CodigoInterno = ? LIMIT 1
             `, [idTienda, codigoInterno]).catch(() => []) as Promise<Row[]>,
-            mysqlQuery(`
-                SELECT FechaActEstadoInventarios FROM tblActualizacionesTiendas WHERE IdTienda = ? LIMIT 1
-            `, [idTienda]).catch(() => []) as Promise<Row[]>,
         ]);
 
         const articulo = articulos?.[0];
@@ -252,9 +249,6 @@ export async function GET(request: Request) {
                 origen: baseOrigen,
                 desde,
                 snapshotFecha: snapshot?.Fecha ? String(snapshot.Fecha).slice(0, 10) : null,
-                actualizadoTienda: marcadores?.[0]?.FechaActEstadoInventarios
-                    ? String(marcadores[0].FechaActEstadoInventarios)
-                    : null,
             },
             desdeElCorte: { entradas, salidas },
             variantesKit: codigos.length - 1,

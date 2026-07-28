@@ -44,7 +44,6 @@ interface FilaExceso {
 interface Datos {
     tipo: Tab
     corteFecha: string
-    actualizado: string | null
     dias?: number
     umbral?: number
     truncado: boolean

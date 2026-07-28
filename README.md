@@ -143,9 +143,10 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
 
 - **Inventarios → Quiebres y Sobre-inventario** (`/dashboard/inventarios/quiebres`): análisis
   sobre el **corte nocturno consolidado en el MySQL central** (`tblInventariosCostosActual` /
-  `tblInventariosCostos`, pobladas por KYKInvServices con IdTienda; frescura en
-  `tblActualizacionesTiendas.FechaActEstadoInventarios`, con aviso si el corte tiene más de 2
-  días). Solo se usan Exi/PVD/Costo del central — las columnas Entradas/Salidas llegan volteadas
+  `tblInventariosCostos`, pobladas por KYKInvServices con IdTienda; la frescura se valida con
+  la fecha del propio corte, con aviso si tiene más de 2 días — la columna
+  `FechaActEstadoInventarios` de `tblActualizacionesTiendas` no existe en el central y el
+  UPDATE del Java además nunca corría por un bug de variables, así que no se usa). Solo se usan Exi/PVD/Costo del central — las columnas Entradas/Salidas llegan volteadas
   por un bug de transmisión de KYKInvServices y no se tocan. Tab **Quiebres**: agotados con
   demanda (Exi≤0, PVD>0) hoy o con días en quiebre en el rango (7/30/90 días), con **venta
   perdida estimada** = días en quiebre × PVD × precio, ordenado por impacto. Tab
