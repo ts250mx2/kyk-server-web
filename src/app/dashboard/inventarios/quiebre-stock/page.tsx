@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt } from "@/lib/format"
 import { exportarPdf, exportarExcel, obtenerTiendaSesion, sufijoArchivo } from "@/lib/export"
 import { AnalisisProfundoModal, BotonAnalisisProfundo, type PageSummaryContext } from "@/components/dashboard/AnalisisProfundo"
+import { MovimientosArticuloModal } from "@/components/dashboard/MovimientosArticulo"
 
 interface ItemQuiebre {
     codigoInterno: number
@@ -91,6 +92,8 @@ export default function QuiebreStockPage() {
     const [busqueda, setBusqueda] = useState("")
     // Drill-down: clic en un departamento abre el modal con sus artículos
     const [deptoDetalle, setDeptoDetalle] = useState<string | null>(null)
+    // Clic en un producto: modal de movimientos del artículo
+    const [movArticulo, setMovArticulo] = useState<ItemQuiebre | null>(null)
     const [agrupar, setAgrupar] = useState<Agrupar>("sku")
     const [orden, setOrden] = useState<OrdenKey>("ventaPerdida")
     const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null)
@@ -578,7 +581,12 @@ export default function QuiebreStockPage() {
                                                 {visibles.map(it => {
                                                     const sev = SEVERIDAD[it.severidad]
                                                     return (
-                                                        <tr key={it.codigoInterno} className="hover:bg-white/[0.03]">
+                                                        <tr
+                                                            key={it.codigoInterno}
+                                                            onClick={() => setMovArticulo(it)}
+                                                            className="hover:bg-white/[0.03] cursor-pointer"
+                                                            title="Ver movimientos del artículo"
+                                                        >
                                                             <td className="px-4 py-2.5">
                                                                 <p className="text-[13px] font-bold text-slate-200 max-w-[300px] truncate" title={it.descripcion}>
                                                                     {it.descripcion}
@@ -713,7 +721,12 @@ export default function QuiebreStockPage() {
                                     {articulosDepto.map(it => {
                                         const sev = SEVERIDAD[it.severidad]
                                         return (
-                                            <tr key={it.codigoInterno} className="hover:bg-white/[0.03]">
+                                            <tr
+                                                key={it.codigoInterno}
+                                                onClick={() => setMovArticulo(it)}
+                                                className="hover:bg-white/[0.03] cursor-pointer"
+                                                title="Ver movimientos del artículo"
+                                            >
                                                 <td className="px-4 py-2.5">
                                                     <p className="text-[13px] font-bold text-slate-200 max-w-[320px] truncate" title={it.descripcion}>
                                                         {it.descripcion}
@@ -757,6 +770,14 @@ export default function QuiebreStockPage() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Modal de movimientos del artículo */}
+            {movArticulo && (
+                <MovimientosArticuloModal
+                    articulo={movArticulo}
+                    onClose={() => setMovArticulo(null)}
+                />
             )}
 
             <AnalisisProfundoModal

@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt } from "@/lib/format"
 import { exportarPdf, exportarExcel, obtenerTiendaSesion, sufijoArchivo } from "@/lib/export"
 import { AnalisisProfundoModal, BotonAnalisisProfundo, type PageSummaryContext } from "@/components/dashboard/AnalisisProfundo"
+import { MovimientosArticuloModal } from "@/components/dashboard/MovimientosArticulo"
 
 type Tab = "quiebres" | "exceso"
 
@@ -82,6 +83,8 @@ export default function QuiebresPage() {
     const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null)
     const [tienda, setTienda] = useState("")
     const [analisisAbierto, setAnalisisAbierto] = useState(false)
+    // Clic en un producto: modal de movimientos del artículo
+    const [movArticulo, setMovArticulo] = useState<{ codigoInterno: number; codigoBarras: string; descripcion: string } | null>(null)
 
     // Carga inicial (quiebres a 30 días) e identidad de la tienda para el análisis
     useEffect(() => {
@@ -469,7 +472,12 @@ export default function QuiebresPage() {
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
                                 {(visibles as FilaQuiebre[]).map(f => (
-                                    <tr key={f.codigoInterno} className={cn("hover:bg-white/[0.03]", f.enQuiebreHoy && "bg-rose-500/[0.04]")}>
+                                    <tr
+                                        key={f.codigoInterno}
+                                        onClick={() => setMovArticulo(f)}
+                                        className={cn("hover:bg-white/[0.03] cursor-pointer", f.enQuiebreHoy && "bg-rose-500/[0.04]")}
+                                        title="Ver movimientos del artículo"
+                                    >
                                         <td className="px-4 py-2.5 text-[12px] font-black text-cyan-300 whitespace-nowrap">{f.codigoBarras}</td>
                                         <td className="px-4 py-2.5 text-[13px] font-bold text-slate-200 max-w-[260px] truncate" title={f.descripcion}>{f.descripcion}</td>
                                         <td className="px-4 py-2.5 text-center whitespace-nowrap">
@@ -516,7 +524,12 @@ export default function QuiebresPage() {
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
                                 {(visibles as FilaExceso[]).map(f => (
-                                    <tr key={f.codigoInterno} className={cn("hover:bg-white/[0.03]", f.sinVenta && "bg-rose-500/[0.04]")}>
+                                    <tr
+                                        key={f.codigoInterno}
+                                        onClick={() => setMovArticulo(f)}
+                                        className={cn("hover:bg-white/[0.03] cursor-pointer", f.sinVenta && "bg-rose-500/[0.04]")}
+                                        title="Ver movimientos del artículo"
+                                    >
                                         <td className="px-4 py-2.5 text-[12px] font-black text-cyan-300 whitespace-nowrap">{f.codigoBarras}</td>
                                         <td className="px-4 py-2.5 text-[13px] font-bold text-slate-200 max-w-[280px] truncate" title={f.descripcion}>{f.descripcion}</td>
                                         <td className="px-4 py-2.5 text-[13px] font-black text-slate-100 text-right whitespace-nowrap">
@@ -543,6 +556,14 @@ export default function QuiebresPage() {
                     </div>
                 )}
             </div>
+
+            {/* Modal de movimientos del artículo */}
+            {movArticulo && (
+                <MovimientosArticuloModal
+                    articulo={movArticulo}
+                    onClose={() => setMovArticulo(null)}
+                />
+            )}
 
             <AnalisisProfundoModal
                 open={analisisAbierto}
