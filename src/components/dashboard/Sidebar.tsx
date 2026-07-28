@@ -45,6 +45,7 @@ const menuSections: MenuSection[] = [
         title: "Inventarios",
         emoji: "🧮",
         items: [
+            { name: "Existencias", emoji: "🔎", href: "/dashboard/inventarios/existencias" },
             { name: "Por Proveedor", emoji: "🚚", href: "/dashboard/inventarios/por-proveedor" },
             { name: "Quiebres y Sobre-inventario", emoji: "📉", href: "/dashboard/inventarios/quiebres" },
         ]
