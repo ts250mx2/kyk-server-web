@@ -19,6 +19,7 @@ interface Existencia {
         descripcion: string
         medidaVenta: string
         precio: number
+        ultimoCosto: number
     }
     existencia: number
     diasCobertura: number | null
@@ -149,7 +150,15 @@ export default function ExistenciasPage() {
     }
 
     const maxExi = Math.max(...historico.map(h => h.exi), 1)
-    const diasEnQuiebre = historico.filter(h => h.exi <= 0 && h.pvd > 0).length
+
+    // Pérdida estimada por quiebre: se usa el PVD registrado CADA DÍA en quiebre
+    // (la demanda de ese momento) por el precio actual; la utilidad descuenta el
+    // UltimoCosto. Es un estimado: el precio histórico no se conserva.
+    const precioActual = existencia?.articulo.precio ?? 0
+    const margenActual = Math.max(0, precioActual - (existencia?.articulo.ultimoCosto ?? 0))
+    const diasQuiebre = historico.filter(h => h.exi <= 0 && h.pvd > 0)
+    const ventaPerdida = diasQuiebre.reduce((t, h) => t + h.pvd * precioActual, 0)
+    const utilidadPerdida = diasQuiebre.reduce((t, h) => t + h.pvd * margenActual, 0)
 
     return (
         <div className="space-y-4">
@@ -290,9 +299,6 @@ export default function ExistenciasPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                         <h3 className="text-[12px] font-black text-slate-300 uppercase tracking-widest">
                             📈 Existencia al corte de cada día
-                            {diasEnQuiebre > 0 && (
-                                <span className="ml-2 text-rose-300">· {fmtInt(diasEnQuiebre)} días en quiebre</span>
-                            )}
                         </h3>
                         <div className="flex items-center rounded-xl bg-white/[0.03] border border-white/10 p-1">
                             {[30, 90].map(d => (
@@ -323,6 +329,21 @@ export default function ExistenciasPage() {
                         </div>
                     ) : (
                         <div onMouseLeave={() => setPuntoActivo(null)}>
+                            {/* Pérdida estimada del periodo por días en quiebre */}
+                            {diasQuiebre.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 bg-rose-500/[0.06] border border-rose-500/25 rounded-xl px-4 py-2.5 mb-3">
+                                    <span className="text-[11px] font-black text-rose-300 uppercase tracking-wider">
+                                        {fmtInt(diasQuiebre.length)} día{diasQuiebre.length > 1 ? "s" : ""} en quiebre en el periodo
+                                    </span>
+                                    <span className="text-[11px] font-bold text-slate-300">
+                                        Venta perdida est.: <span className="font-black text-rose-300">{fmtMoney(ventaPerdida)}</span>
+                                    </span>
+                                    <span className="text-[11px] font-bold text-slate-300">
+                                        Utilidad perdida est.: <span className="font-black text-rose-300">{fmtMoney(utilidadPerdida)}</span>
+                                    </span>
+                                </div>
+                            )}
+
                             {/* Lectura del día bajo el cursor (altura fija para no brincar) */}
                             <div className="h-6 mb-1 flex items-center justify-between gap-2">
                                 {puntoActivo ? (
@@ -335,9 +356,14 @@ export default function ExistenciasPage() {
                                             {fmtDec(puntoActivo.exi)} {existencia.articulo.medidaVenta}
                                         </span>
                                         {puntoActivo.exi <= 0 && puntoActivo.pvd > 0 && (
-                                            <span className="ml-2 text-[10px] font-black text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-md px-1.5 py-0.5 uppercase">
-                                                Quiebre
-                                            </span>
+                                            <>
+                                                <span className="ml-2 text-[10px] font-black text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-md px-1.5 py-0.5 uppercase">
+                                                    Quiebre
+                                                </span>
+                                                <span className="ml-2 text-[12px] font-bold text-rose-300/90">
+                                                    ~{fmtMoney(puntoActivo.pvd * precioActual)} de venta perdida
+                                                </span>
+                                            </>
                                         )}
                                     </p>
                                 ) : (
@@ -356,7 +382,7 @@ export default function ExistenciasPage() {
                                         key={h.fecha}
                                         className="flex-1 flex items-end h-full min-w-0 cursor-crosshair"
                                         onMouseEnter={() => setPuntoActivo(h)}
-                                        title={`${fechaDia(h.fecha)} — ${fmtDec(h.exi)}${h.exi <= 0 && h.pvd > 0 ? " (QUIEBRE)" : ""}`}
+                                        title={`${fechaDia(h.fecha)} — ${fmtDec(h.exi)}${h.exi <= 0 && h.pvd > 0 ? ` (QUIEBRE, ~${fmtMoney(h.pvd * precioActual)} perdidos)` : ""}`}
                                     >
                                         <div
                                             className={cn(

@@ -38,7 +38,7 @@ export async function GET(request: Request) {
         // Artículo + familia de kits (variantes que descuentan al padre)
         const [articulos, kits, snapshots, marcadores] = await Promise.all([
             tiendaQuery(idTienda, `
-                SELECT CodigoInterno, CodigoBarras, Descripcion, MedidaVenta, MedidaCompra, Precio, Status
+                SELECT CodigoInterno, CodigoBarras, Descripcion, MedidaVenta, MedidaCompra, Precio, UltimoCosto, Status
                 FROM tblArticulos WHERE CodigoInterno = ? LIMIT 1
             `, [codigoInterno]) as Promise<Row[]>,
             tiendaQuery(idTienda, `
@@ -242,6 +242,7 @@ export async function GET(request: Request) {
                 descripcion: String(articulo.Descripcion ?? '').trim(),
                 medidaVenta: String(articulo.MedidaVenta ?? '').trim(),
                 precio: num(articulo.Precio),
+                ultimoCosto: num(articulo.UltimoCosto),
             },
             existencia,
             diasCobertura,
