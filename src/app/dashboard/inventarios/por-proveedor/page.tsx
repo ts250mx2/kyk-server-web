@@ -84,6 +84,8 @@ export default function InventariosPage() {
 
     const [diasPedido, setDiasPedido] = useState("")
     const [articulos, setArticulos] = useState<ArticuloInventario[]>([])
+    // Cantidades a pedir por artículo, precargadas con el pedido sugerido
+    const [pedidos, setPedidos] = useState<Record<number, string>>({})
     const [consultado, setConsultado] = useState<Consulta | null>(null)
     const [filtroArticulos, setFiltroArticulos] = useState("")
     const [cargando, setCargando] = useState(false)
@@ -144,6 +146,7 @@ export default function InventariosPage() {
                     if (e.proveedorSel?.idProveedor) setProveedorSel(e.proveedorSel)
                     if (typeof e.diasPedido === "string") setDiasPedido(e.diasPedido)
                     if (Array.isArray(e.articulos)) setArticulos(e.articulos)
+                    if (e.pedidos && typeof e.pedidos === "object") setPedidos(e.pedidos)
                     if (e.consultado?.proveedor) setConsultado(e.consultado)
                 } catch { /* estado guardado ilegible: se inicia limpio */ }
             })
@@ -156,10 +159,10 @@ export default function InventariosPage() {
         if (!idTienda) return
         try {
             sessionStorage.setItem(CLAVE_STORAGE, JSON.stringify({
-                idTienda, filtroProv, proveedorSel, diasPedido, articulos, consultado,
+                idTienda, filtroProv, proveedorSel, diasPedido, articulos, pedidos, consultado,
             }))
         } catch { /* p.ej. cuota llena: la página sigue sin persistencia */ }
-    }, [idTienda, filtroProv, proveedorSel, diasPedido, articulos, consultado])
+    }, [idTienda, filtroProv, proveedorSel, diasPedido, articulos, pedidos, consultado])
 
     // Contador de espera: el servicio recalcula el inventario y puede tardar minutos
     useEffect(() => {
@@ -201,6 +204,12 @@ export default function InventariosPage() {
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || "Error al consultar el inventario")
             setArticulos(json.articulos)
+            // Precarga el pedido con el sugerido del servicio; el usuario lo ajusta
+            setPedidos(Object.fromEntries(
+                (json.articulos as ArticuloInventario[])
+                    .filter(a => a.pedidoSugerido > 0)
+                    .map(a => [a.codigoInterno, String(a.pedidoSugerido)])
+            ))
             setConsultado({ proveedor: proveedorSel.proveedor, dias, en: new Date().toISOString() })
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Error al consultar el inventario")
@@ -278,6 +287,60 @@ export default function InventariosPage() {
         exceso: articulos.filter(a => a.estatus === 1).length,
         agotados: articulos.filter(a => a.estatus === 2).length,
     }), [articulos])
+
+    // Renglones del pedido: artículos con cantidad capturada mayor a cero
+    const pedidoResumen = useMemo(() => {
+        const lineas = articulos.filter(a => Number(pedidos[a.codigoInterno]) > 0)
+        return {
+            lineas,
+            unidades: lineas.reduce((t, a) => t + Number(pedidos[a.codigoInterno]), 0),
+        }
+    }, [articulos, pedidos])
+
+    // Export del pedido al proveedor: solo los renglones con cantidad a pedir
+    const exportarPedido = async (formato: "pdf" | "excel") => {
+        if (!consultado || pedidoResumen.lineas.length === 0) return
+        setExportando(formato)
+        try {
+            const nombreTienda = tienda || await obtenerTiendaSesion()
+            const base = {
+                titulo: "PEDIDO A PROVEEDOR",
+                subtitulo: `${consultado.proveedor} · ${fmtInt(pedidoResumen.lineas.length)} artículos · ${fmtInt(pedidoResumen.unidades)} unidades`,
+                tienda: nombreTienda,
+                columnas: [
+                    { header: "Código" },
+                    { header: "Descripción" },
+                    { header: "Existencia", align: "right" as const },
+                    { header: "PVD", align: "right" as const },
+                    { header: "Cantidad", align: "right" as const },
+                    { header: "Medida Compra" },
+                ],
+                nombreArchivo: `pedido_${sufijoArchivo()}`,
+            }
+            if (formato === "pdf") {
+                exportarPdf({
+                    ...base,
+                    filas: pedidoResumen.lineas.map(a => [
+                        a.codigoBarras, a.descripcion, fmtDec(a.exiActual), fmtDec(a.pvd),
+                        String(Number(pedidos[a.codigoInterno])), a.medidaCompra,
+                    ]),
+                })
+            } else {
+                exportarExcel({
+                    ...base,
+                    hoja: "Pedido",
+                    filas: pedidoResumen.lineas.map(a => [
+                        a.codigoBarras, a.descripcion, a.exiActual, a.pvd,
+                        Number(pedidos[a.codigoInterno]), a.medidaCompra,
+                    ]),
+                })
+            }
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Error al exportar el pedido")
+        } finally {
+            setExportando(null)
+        }
+    }
 
     // Contexto para el Análisis Profundo IA con los agregados de la consulta
     const contextoAnalisis: PageSummaryContext = useMemo(() => {
@@ -522,6 +585,33 @@ export default function InventariosPage() {
                 </div>
             )}
 
+            {/* Pedido armado: renglones con cantidad a pedir capturada */}
+            {consultado && !cargando && pedidoResumen.lineas.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-amber-500/[0.06] border border-amber-500/25 rounded-2xl px-4 py-3 backdrop-blur-xl">
+                    <p className="text-[12px] font-black text-amber-300 uppercase tracking-widest">
+                        🛒 Pedido: {fmtInt(pedidoResumen.lineas.length)} artículo{pedidoResumen.lineas.length > 1 ? "s" : ""} · {fmtInt(pedidoResumen.unidades)} unidades
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => exportarPedido("pdf")}
+                            disabled={exportando !== null}
+                            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 hover:text-rose-300 hover:border-rose-500/30 font-black text-[11px] uppercase tracking-widest transition-all disabled:opacity-40"
+                            title="Imprimir el pedido a PDF"
+                        >
+                            <FileText className="h-4 w-4" /> Pedido PDF
+                        </button>
+                        <button
+                            onClick={() => exportarPedido("excel")}
+                            disabled={exportando !== null}
+                            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 hover:text-emerald-300 hover:border-emerald-500/30 font-black text-[11px] uppercase tracking-widest transition-all disabled:opacity-40"
+                            title="Exportar el pedido a Excel"
+                        >
+                            <FileSpreadsheet className="h-4 w-4" /> Pedido Excel
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {error && (
                 <div className="flex items-center gap-2 text-rose-300 text-[11px] font-black bg-rose-500/10 p-3 rounded-xl border border-rose-500/25 uppercase tracking-wider">
                     <AlertTriangle className="h-4 w-4" /> {error}
@@ -569,6 +659,7 @@ export default function InventariosPage() {
                                     <th className={cn(lbl, "px-4 py-2.5 text-center")}>Medida Venta</th>
                                     <th className={cn(lbl, "px-4 py-2.5 text-center")}>Estatus</th>
                                     <th className={cn(lbl, "px-4 py-2.5 text-right")}>Pedido</th>
+                                    <th className={cn(lbl, "px-4 py-2.5 text-right")}>A Pedir</th>
                                     <th className={cn(lbl, "px-4 py-2.5 text-left")}>Medida Compra</th>
                                 </tr>
                             </thead>
@@ -612,6 +703,17 @@ export default function InventariosPage() {
                                                 title={a.pedidoTransito > 0 ? `${a.pedidoTransito} en tránsito` : ""}
                                             >
                                                 {a.pedido || "—"}
+                                            </td>
+                                            {/* La celda no abre el modal de movimientos: aquí se captura el pedido */}
+                                            <td className="px-4 py-2.5 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    placeholder="0"
+                                                    className="w-20 px-2 py-1.5 bg-white/[0.03] border border-white/10 rounded-lg text-[13px] font-black text-amber-200 text-right focus:outline-none focus:ring-2 focus:ring-amber-400/25 focus:border-amber-400/60 transition-all"
+                                                    value={pedidos[a.codigoInterno] ?? ""}
+                                                    onChange={e => setPedidos(prev => ({ ...prev, [a.codigoInterno]: e.target.value }))}
+                                                />
                                             </td>
                                             <td className="px-4 py-2.5 text-[12px] font-bold text-slate-400 whitespace-nowrap">{a.medidaCompra || "—"}</td>
                                         </tr>

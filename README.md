@@ -113,6 +113,23 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   local del resultado y export PDF/Excel. Clic en un artículo abre el **modal de movimientos**
   (`method=mov` sobre el buffer de la consulta) con fecha, concepto, usuario, real y equivalencia.
 
+- **Inventarios → Existencias** (`/dashboard/inventarios/existencias`): consulta rápida por
+  artículo pensada para **escanear el código de barras** (lector de teclado + Enter) o teclear
+  la descripción. Muestra existencia estimada (corte + entradas/salidas del día, con desglose y
+  origen de la base: corte nocturno o último ajuste), cobertura en días, PVD y precio, más una
+  **gráfica del histórico diario** (30/90 días, del `tblInventariosCostos` central) donde los
+  días en quiebre se pintan en rojo. Con un solo resultado en la búsqueda, se selecciona solo.
+
+- **Inventarios → Por Proveedor — pedido**: el grid tiene columna **"A Pedir"** editable,
+  precargada con el pedido sugerido del servicio; la barra de pedido (renglones y unidades)
+  ofrece **Pedido PDF / Pedido Excel** con solo los renglones capturados — listo para mandarse
+  al proveedor. Las cantidades se persisten junto con la consulta. Además, el API serializa
+  consultas simultáneas del mismo proveedor (los buffers del servicio Java se pisaban entre sí)
+  y las idénticas comparten el mismo resultado en vuelo. En el dashboard **Principal** aparece
+  un aviso ámbar cuando hay artículos en quiebre con demanda, con la venta perdida diaria
+  estimada y link directo. En Quiebres/Sobre-inventario el **costo autorizado es
+  `tblArticulos.UltimoCosto`** del MySQL de tienda (el Costo del central solo ordena el recorte).
+
 - **Inventarios → Quiebres y Sobre-inventario** (`/dashboard/inventarios/quiebres`): análisis
   sobre el **corte nocturno consolidado en el MySQL central** (`tblInventariosCostosActual` /
   `tblInventariosCostos`, pobladas por KYKInvServices con IdTienda; frescura en
