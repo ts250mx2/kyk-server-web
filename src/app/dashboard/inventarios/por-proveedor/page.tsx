@@ -88,6 +88,14 @@ export default function InventariosPage() {
     const [cargandoMov, setCargandoMov] = useState(false)
 
     const provInputRef = useRef<HTMLInputElement>(null)
+    const movContenedorRef = useRef<HTMLDivElement>(null)
+
+    // Al cargar los movimientos, ir hasta el último (los más recientes al fondo)
+    useEffect(() => {
+        if (cargandoMov) return
+        const el = movContenedorRef.current
+        if (el) el.scrollTop = el.scrollHeight
+    }, [cargandoMov, movimientos])
 
     useEffect(() => {
         fetch("/api/inventarios/proveedores")
@@ -182,6 +190,35 @@ export default function InventariosPage() {
         } finally {
             setCargandoMov(false)
         }
+    }
+
+    // Export a Excel del detalle de movimientos, con el formato del portal
+    const exportarMovimientos = async () => {
+        if (!movArticulo || movimientos.length === 0) return
+        const nombreTienda = tienda || await obtenerTiendaSesion()
+        exportarExcel({
+            titulo: "MOVIMIENTOS DE INVENTARIO",
+            subtitulo: `${movArticulo.descripcion} · Código ${movArticulo.codigoBarras} · Existencia actual: ${fmtDec(movArticulo.exiActual)} ${movArticulo.medidaVenta} · ${fmtInt(movimientos.length)} movimientos`,
+            tienda: nombreTienda,
+            hoja: "Movimientos",
+            nombreArchivo: `movimientos_${movArticulo.codigoBarras || movArticulo.codigoInterno}_${sufijoArchivo()}`,
+            columnas: [
+                { header: "Fecha" },
+                { header: "Concepto" },
+                { header: "Usuario" },
+                { header: "Real", align: "right" },
+                { header: "Equiv", align: "right" },
+                { header: "Medida", align: "center" },
+            ],
+            filas: movimientos.map(m => [
+                fmtFechaHora(m.fecha),
+                m.concepto || "",
+                m.usuario || "",
+                m.mov,
+                m.equiv,
+                m.medidaVenta || "",
+            ]),
+        })
     }
 
     const articulosVisibles = useMemo(() => {
@@ -562,12 +599,23 @@ export default function InventariosPage() {
                                     Código {movArticulo.codigoBarras} · Existencia actual: {fmtDec(movArticulo.exiActual)} {movArticulo.medidaVenta}
                                 </p>
                             </div>
-                            <button
-                                onClick={() => setMovArticulo(null)}
-                                className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    onClick={exportarMovimientos}
+                                    disabled={cargandoMov || movimientos.length === 0}
+                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 hover:text-emerald-300 hover:border-emerald-500/30 font-black text-[11px] uppercase tracking-widest transition-all disabled:opacity-40"
+                                    title="Exportar movimientos a Excel"
+                                >
+                                    <FileSpreadsheet className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Excel</span>
+                                </button>
+                                <button
+                                    onClick={() => setMovArticulo(null)}
+                                    className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
                         </div>
 
                         {cargandoMov ? (
@@ -582,7 +630,7 @@ export default function InventariosPage() {
                             </div>
                         ) : (
                             <>
-                                <div className="overflow-auto flex-1">
+                                <div ref={movContenedorRef} className="overflow-auto flex-1">
                                     <table className="w-full">
                                         <thead className="sticky top-0 z-10 bg-[#141a28]">
                                             <tr>
