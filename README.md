@@ -98,10 +98,10 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   `/api/recibos/[id]/impresion` (**solo lectura** — sin los UPDATEs que ejecuta el Java);
   PDF en [src/lib/recibo-pdf.ts](src/lib/recibo-pdf.ts), abre en pestaña nueva.
 
-- **Artículos → Inventarios** (`/dashboard/articulos/inventarios`): versión web de la página de
-  Inventarios del sitio PHP kesosykosas.net. La tienda es **siempre la de la sesión** (no se
-  elige); solo se elige proveedor (combo buscable con `DiasPedido` por tienda autollenado desde
-  `tblProveedoresTiendasDias`, consulta directa al MySQL de tienda) y días de pedido. Las
+- **Inventarios → Por Proveedor** (`/dashboard/inventarios/por-proveedor`): versión web de la
+  página de Inventarios del sitio PHP kesosykosas.net. La tienda es **siempre la de la sesión**
+  (no se elige); solo se elige proveedor (combo buscable con `DiasPedido` por tienda autollenado
+  desde `tblProveedoresTiendasDias`, consulta directa al MySQL de tienda) y días de pedido. Las
   existencias **no se recalculan aquí**: se reutiliza el servicio Java `KYKInventariosWeb`
   (Tomcat de cada tienda) como motor de cálculo — el API del portal resuelve el host desde
   `tblTiendas.DireccionWebService` del MySQL central (con lo que se elimina el proxy abierto
@@ -112,6 +112,33 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   mismo orden del servidor: pendientes arriba), pedido sugerido con tránsito "(N) M", filtro
   local del resultado y export PDF/Excel. Clic en un artículo abre el **modal de movimientos**
   (`method=mov` sobre el buffer de la consulta) con fecha, concepto, usuario, real y equivalencia.
+
+- **Inventarios → Quiebres y Sobre-inventario** (`/dashboard/inventarios/quiebres`): análisis
+  sobre el **corte nocturno consolidado en el MySQL central** (`tblInventariosCostosActual` /
+  `tblInventariosCostos`, pobladas por KYKInvServices con IdTienda; frescura en
+  `tblActualizacionesTiendas.FechaActEstadoInventarios`, con aviso si el corte tiene más de 2
+  días). Solo se usan Exi/PVD/Costo del central — las columnas Entradas/Salidas llegan volteadas
+  por un bug de transmisión de KYKInvServices y no se tocan. Tab **Quiebres**: agotados con
+  demanda (Exi≤0, PVD>0) hoy o con días en quiebre en el rango (7/30/90 días), con **venta
+  perdida estimada** = días en quiebre × PVD × precio, ordenado por impacto. Tab
+  **Sobre-inventario**: cobertura (Exi/PVD) ≥ umbral configurable e inventario **muerto**
+  (Exi>0 sin venta), con **valor inmovilizado** = Exi × costo. Nombres/precios del MySQL de
+  tienda (solo artículos activos), resumen, filtro local y export PDF/Excel.
+
+- **Análisis Profundo IA** (botón en ambas páginas de Inventarios): port del deep-summary de
+  kyk-dashboard. Cada página arma un contexto agregado (KPIs, top items y anomalías en texto —
+  nunca filas crudas) y `/api/analisis-profundo` genera con Claude Sonnet 5 secciones (resumen
+  ejecutivo, hallazgos, oportunidades, riesgos y acciones) renderizadas en un modal
+  ([src/components/dashboard/AnalisisProfundo.tsx](src/components/dashboard/AnalisisProfundo.tsx)).
+
+- **Existencia puntual** (`/api/inventarios/existencia?codigoInterno=`): existencia de UN
+  artículo sin recalcular el proveedor completo: base = Exi del corte nocturno central (o el
+  último ajuste de inventario si es más nuevo) + movimientos desde el corte leídos del MySQL de
+  tienda con el mismo SQL de ThreadMovimientos (recibos con fórmula de granel, transferencias
+  con fecha efectiva de entrada, otros movimientos, empacados, devoluciones, ventas, y POS/CEDIS/
+  SAP como opcionales tolerantes). Expande un nivel de `tblKits` (las variantes aportan
+  Mov/Factor). Kesito la usa vía las herramientas **existencia_articulo** y
+  **quiebres_inventario** para responder "¿cuánto tengo de X?" o "¿qué se me está agotando?".
 
 - **Operaciones → Transferencias** (`/dashboard/transferencias/reporte`): reporte similar al de
   Recibos con tabs **Entradas** (`tblTransferenciasEntradas` + su salida ligada por FolioEntrada

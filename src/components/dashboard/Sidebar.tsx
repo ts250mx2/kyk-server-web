@@ -39,7 +39,14 @@ const menuSections: MenuSection[] = [
             { name: "Precios", emoji: "🏷️", href: "/dashboard/articulos/precios" },
             { name: "Precios Básculas", emoji: "⚖️", href: "/dashboard/articulos/precios-basculas" },
             { name: "Ofertas", emoji: "🎁", href: "/dashboard/articulos/ofertas" },
-            { name: "Inventarios", emoji: "🧮", href: "/dashboard/articulos/inventarios" },
+        ]
+    },
+    {
+        title: "Inventarios",
+        emoji: "🧮",
+        items: [
+            { name: "Por Proveedor", emoji: "🚚", href: "/dashboard/inventarios/por-proveedor" },
+            { name: "Quiebres y Sobre-inventario", emoji: "📉", href: "/dashboard/inventarios/quiebres" },
         ]
     },
     {

@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora } from "@/lib/format"
 import { exportarPdf, exportarExcel, obtenerTiendaSesion, sufijoArchivo } from "@/lib/export"
+import { AnalisisProfundoModal, BotonAnalisisProfundo, type PageSummaryContext } from "@/components/dashboard/AnalisisProfundo"
 
 interface Proveedor {
     idProveedor: number
@@ -78,6 +79,8 @@ export default function InventariosPage() {
     const [segundos, setSegundos] = useState(0)
     const [error, setError] = useState("")
     const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null)
+    const [tienda, setTienda] = useState("")
+    const [analisisAbierto, setAnalisisAbierto] = useState(false)
 
     // Modal de movimientos
     const [movArticulo, setMovArticulo] = useState<ArticuloInventario | null>(null)
@@ -99,6 +102,12 @@ export default function InventariosPage() {
             })
             .catch(() => setError("Error al consultar los proveedores de la tienda"))
             .finally(() => setCargandoProveedores(false))
+
+        // Nombre de la tienda para el alcance del análisis profundo
+        fetch("/api/auth/me")
+            .then(r => r.json())
+            .then(d => setTienda(d.user?.tienda ?? ""))
+            .catch(() => { /* el análisis usa alcance genérico */ })
     }, [])
 
     // Contador de espera: el servicio recalcula el inventario y puede tardar minutos
@@ -190,6 +199,38 @@ export default function InventariosPage() {
         agotados: articulos.filter(a => a.estatus === 2).length,
     }), [articulos])
 
+    // Contexto para el Análisis Profundo IA con los agregados de la consulta
+    const contextoAnalisis: PageSummaryContext = useMemo(() => {
+        const hoy = new Date().toLocaleDateString("sv-SE")
+        const porPedir = articulos.filter(a => a.estatus === 0)
+        const agotados = articulos.filter(a => a.estatus === 2)
+        return {
+            pageContext: consultado
+                ? `Inventario del proveedor ${consultado.proveedor} (días de pedido: ${consultado.dias}). Estatus: Pedir = hay que resurtir, Agotado = quiebre con demanda creciente, Exceso = sobre-inventario.`
+                : "Inventario por proveedor",
+            period: { fechaInicio: hoy, fechaFin: hoy },
+            scope: tienda || "Tienda de la sesión",
+            kpis: {
+                articulos: resumen.total,
+                articulosPorPedir: resumen.porPedir,
+                agotadosConDemanda: resumen.agotados,
+                articulosConSobreInventario: resumen.exceso,
+            },
+            highlights: {
+                topItems: [...porPedir]
+                    .sort((a, b) => b.pedidoSugerido - a.pedidoSugerido)
+                    .slice(0, 10)
+                    .map(a => ({ name: `${a.descripcion} (pedido sugerido)`, value: a.pedidoSugerido })),
+                anomalies: [
+                    ...agotados.slice(0, 8).map(a =>
+                        `${a.descripcion}: agotado con demanda creciente (vende ${fmtDec(a.pvd)}/día)`),
+                    ...porPedir.slice(0, 7).map(a =>
+                        `${a.descripcion}: quedan ${fmtDec(a.exiPara)} días de existencia, pedir ${a.pedido} ${a.medidaCompra}`),
+                ],
+            },
+        }
+    }, [articulos, consultado, resumen, tienda])
+
     const exportar = async (formato: "pdf" | "excel") => {
         if (!consultado) return
         setExportando(formato)
@@ -241,7 +282,7 @@ export default function InventariosPage() {
             {/* Encabezado */}
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h1 className="text-2xl font-black text-white uppercase tracking-tight">Inventarios</h1>
+                    <h1 className="text-2xl font-black text-white uppercase tracking-tight">Inventarios por Proveedor</h1>
                     <p className="text-[12px] font-bold text-slate-500 mt-1">
                         {cargando
                             ? `Calculando inventario en la tienda... ${segundos}s`
@@ -251,6 +292,10 @@ export default function InventariosPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <BotonAnalisisProfundo
+                        onClick={() => setAnalisisAbierto(true)}
+                        disabled={cargando || articulos.length === 0}
+                    />
                     <button
                         onClick={() => exportar("pdf")}
                         disabled={exportando !== null || cargando || articulosVisibles.length === 0}
@@ -585,6 +630,12 @@ export default function InventariosPage() {
                     </div>
                 </div>
             )}
+
+            <AnalisisProfundoModal
+                open={analisisAbierto}
+                onClose={() => setAnalisisAbierto(false)}
+                context={contextoAnalisis}
+            />
         </div>
     )
 }

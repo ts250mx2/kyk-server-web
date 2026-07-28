@@ -43,6 +43,8 @@ const ETIQUETA_HERRAMIENTA: Record<string, string> = {
     facturas: 'las facturas',
     devoluciones_venta: 'las devoluciones de venta',
     devoluciones_compra: 'las devoluciones de compra',
+    existencia_articulo: 'la existencia del artículo',
+    quiebres_inventario: 'los quiebres de inventario',
 };
 
 const HERRAMIENTAS: Anthropic.Tool[] = [
@@ -157,6 +159,29 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
         },
     },
     {
+        name: 'existencia_articulo',
+        description: 'Existencia actual estimada de UN artículo: corte nocturno de inventario + movimientos del día (recibos, ventas, transferencias, devoluciones). Regresa existencia, promedio de venta diaria (PVD) y días de cobertura. Obtén primero el codigoInterno con buscar_articulo_precio.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                codigoInterno: { type: 'number' },
+            },
+            required: ['codigoInterno'],
+        },
+    },
+    {
+        name: 'quiebres_inventario',
+        description: 'Análisis de inventario al corte nocturno: "quiebres" = artículos agotados con demanda y su venta perdida estimada; "exceso" = sobre-inventario e inventario muerto con su valor inmovilizado.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                tipo: { type: 'string', enum: ['quiebres', 'exceso'] },
+                dias: { type: 'number', description: 'Rango histórico en días (7-90, default 30; solo aplica a quiebres)' },
+            },
+            required: ['tipo'],
+        },
+    },
+    {
         name: 'devoluciones_compra',
         description: 'Devoluciones de compra al proveedor: pendientes (mercancía apartada por devolver) o historial por rango de fechas.',
         input_schema: {
@@ -205,6 +230,10 @@ function urlDeHerramienta(nombre: string, entrada: Entrada): string | null {
             return `/api/devoluciones?fechaInicio=${s(entrada.fechaInicio)}&fechaFin=${s(entrada.fechaFin)}`;
         case 'devoluciones_compra':
             return `/api/devoluciones-compra?tipo=${s(entrada.tipo)}${entrada.fechaInicio ? `&fechaInicio=${s(entrada.fechaInicio)}&fechaFin=${s(entrada.fechaFin)}` : ''}`;
+        case 'existencia_articulo':
+            return `/api/inventarios/existencia?codigoInterno=${Number(entrada.codigoInterno) || 0}`;
+        case 'quiebres_inventario':
+            return `/api/inventarios/quiebres?tipo=${s(entrada.tipo)}${entrada.dias ? `&dias=${Number(entrada.dias) || 30}` : ''}`;
         default:
             return null;
     }
@@ -283,7 +312,9 @@ export async function POST(request: Request) {
     const sistema = `Eres Kesito, el agente inteligente del portal KYK Server Web de la tienda ${session.tienda}.
 Hoy es ${HOY()}.
 
-SOLO respondes con la información disponible en este portal, consultándola con tus herramientas: precios y ofertas de artículos, precios de báscula, resumen del día, cortes de caja, facturas, recibos de mercancía, transferencias, devoluciones de venta y devoluciones de compra — siempre de la tienda ${session.tienda}.
+SOLO respondes con la información disponible en este portal, consultándola con tus herramientas: precios y ofertas de artículos, precios de báscula, resumen del día, cortes de caja, facturas, recibos de mercancía, transferencias, devoluciones de venta y de compra, existencias de artículos y análisis de inventario (quiebres y sobre-inventario) — siempre de la tienda ${session.tienda}.
+
+Sobre existencias: la cifra es estimada (corte nocturno + movimientos del día); si la pregunta es de existencia, menciona los días de cobertura cuando ayude ("alcanza para ~N días").
 
 Reglas:
 - Usa las herramientas para obtener datos reales; NUNCA inventes cifras ni respondas de memoria.
