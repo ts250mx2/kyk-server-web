@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { tiendaQuery } from '@/lib/tienda-db';
 import { mysqlQuery } from '@/lib/mysql';
+import { cargarKits, resolverMaestro } from '@/lib/kits';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -52,6 +53,24 @@ export async function GET(request: Request) {
 
         const corteFecha = String(snapshotRows[0].Fecha ?? '').slice(0, 10);
 
+        // Consolidación de kits (regla recursiva del webservice, lib/kits): las
+        // filas de variantes del corte se pliegan a su maestro raíz con
+        // Exi/Factor y PVD/Factor antes de evaluar quiebres o exceso — así las
+        // partes de kit no aparecen como quiebres o excesos falsos.
+        const kits = await cargarKits(idTienda);
+        const consolidado = new Map<number, { exi: number; pvd: number; costo: number }>();
+        for (const r of snapshotRows) {
+            const codigo = num(r.CodigoInterno);
+            const { maestro, factor } = resolverMaestro(codigo, kits);
+            const acumulado = consolidado.get(maestro) ?? { exi: 0, pvd: 0, costo: 0 };
+            consolidado.set(maestro, {
+                exi: acumulado.exi + num(r.Exi) / factor,
+                pvd: acumulado.pvd + num(r.PVD) / factor,
+                costo: maestro === codigo ? num(r.Costo) : acumulado.costo,
+            });
+        }
+        const baseConsolidada = [...consolidado.entries()].map(([codigo, v]) => ({ codigo, ...v }));
+
         // Preselección y orden con datos del central; nombres/estatus al final
         interface Candidato {
             codigo: number; exi: number; pvd: number; costo: number;
@@ -70,24 +89,17 @@ export async function GET(request: Request) {
             for (const h of historico ?? []) {
                 porCodigo.set(num(h.CodigoInterno), { quiebre: num(h.DiasQuiebre), total: num(h.DiasTotal) });
             }
-            candidatos = snapshotRows
-                .map(r => {
-                    const codigo = num(r.CodigoInterno);
-                    const hist = porCodigo.get(codigo);
-                    return {
-                        codigo, exi: num(r.Exi), pvd: num(r.PVD), costo: num(r.Costo),
-                        diasQuiebre: hist?.quiebre ?? 0, diasTotal: hist?.total ?? 0,
-                    };
+            candidatos = baseConsolidada
+                .map(c => {
+                    const hist = porCodigo.get(c.codigo);
+                    return { ...c, diasQuiebre: hist?.quiebre ?? 0, diasTotal: hist?.total ?? 0 };
                 })
                 .filter(c => c.pvd > 0 && (c.exi <= 0 || c.diasQuiebre > 0))
                 // Proxy de impacto sin precio: unidades de venta perdidas en el rango
                 .sort((a, b) => (b.diasQuiebre * b.pvd) - (a.diasQuiebre * a.pvd) || (b.pvd - a.pvd));
         } else {
-            candidatos = snapshotRows
-                .map(r => ({
-                    codigo: num(r.CodigoInterno), exi: num(r.Exi), pvd: num(r.PVD), costo: num(r.Costo),
-                    diasQuiebre: 0, diasTotal: 0,
-                }))
+            candidatos = baseConsolidada
+                .map(c => ({ ...c, diasQuiebre: 0, diasTotal: 0 }))
                 .filter(c => c.exi > 0 && (c.pvd <= 0 || c.exi / c.pvd >= umbral))
                 .sort((a, b) => (b.exi * b.costo) - (a.exi * a.costo));
         }

@@ -32,6 +32,7 @@ interface Existencia {
     }
     desdeElCorte: { entradas: number; salidas: number }
     variantesKit: number
+    varianteConsultada: { codigoInterno: number; codigoBarras: string; descripcion: string } | null
     advertencias: string[]
 }
 
@@ -229,6 +230,16 @@ export default function ExistenciasPage() {
             {/* Resultado */}
             {existencia && !cargandoExi && (
                 <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-5 backdrop-blur-xl space-y-4">
+                    {existencia.varianteConsultada && (
+                        <div className="flex items-center gap-2 text-violet-300 text-[11px] font-bold bg-violet-500/10 px-3.5 py-2.5 rounded-xl border border-violet-500/25">
+                            <span className="shrink-0" aria-hidden>🧩</span>
+                            <span>
+                                <span className="font-black">{existencia.varianteConsultada.descripcion}</span>
+                                {" "}({existencia.varianteConsultada.codigoBarras}) es una <span className="font-black">variante de kit</span> —
+                                se muestra la existencia consolidada de su maestro
+                            </span>
+                        </div>
+                    )}
                     <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
                             <h2 className="text-lg font-black text-white truncate">{existencia.articulo.descripcion}</h2>

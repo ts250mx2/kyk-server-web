@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { tiendaQuery } from '@/lib/tienda-db';
 import { mysqlQuery } from '@/lib/mysql';
+import { cargarKits, familiaDelMaestro, resolverMaestro } from '@/lib/kits';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -35,25 +36,33 @@ export async function GET(request: Request) {
     const idTienda = session.idTienda;
 
     try {
-        // Artículo + familia de kits (variantes que descuentan al padre)
-        const [articulos, kits, snapshots] = await Promise.all([
-            tiendaQuery(idTienda, `
-                SELECT CodigoInterno, CodigoBarras, Descripcion, MedidaVenta, MedidaCompra, Precio, UltimoCosto, Status
-                FROM tblArticulos WHERE CodigoInterno = ? LIMIT 1
-            `, [codigoInterno]) as Promise<Row[]>,
-            tiendaQuery(idTienda, `
-                SELECT CodigoInterno, Factor FROM tblKits WHERE CodigoInterno2 = ?
-            `, [codigoInterno]).catch(() => []) as Promise<Row[]>,
-            mysqlQuery(`
-                SELECT Exi, PVD, Costo, Fecha FROM tblInventariosCostosActual
-                WHERE IdTienda = ? AND CodigoInterno = ? LIMIT 1
-            `, [idTienda, codigoInterno]).catch(() => []) as Promise<Row[]>,
-        ]);
+        // Ligas de kits de la tienda (regla recursiva del webservice): si el
+        // código consultado es una variante, su existencia real vive en el
+        // maestro raíz — se calcula sobre el maestro y se avisa en la respuesta.
+        const kits = await cargarKits(idTienda);
+        let maestro = resolverMaestro(codigoInterno, kits).maestro;
 
-        const articulo = articulos?.[0];
-        if (!articulo) {
+        const codigosBuscar = maestro === codigoInterno ? [codigoInterno] : [codigoInterno, maestro];
+        const marcasArt = codigosBuscar.map(() => '?').join(',');
+        const articulosRows = (await tiendaQuery(idTienda, `
+            SELECT CodigoInterno, CodigoBarras, Descripcion, MedidaVenta, MedidaCompra, Precio, UltimoCosto, Status
+            FROM tblArticulos WHERE CodigoInterno IN (${marcasArt})
+        `, codigosBuscar)) as Row[];
+        const porCodigo = new Map((articulosRows ?? []).map(r => [num(r.CodigoInterno), r] as [number, Row]));
+
+        const pedido = porCodigo.get(codigoInterno);
+        if (!pedido) {
             return NextResponse.json({ error: 'Artículo no encontrado en la tienda' }, { status: 404 });
         }
+        // Si el maestro no existe como artículo en la tienda, el consultado se queda como propio maestro
+        if (!porCodigo.has(maestro)) maestro = codigoInterno;
+        const articulo = porCodigo.get(maestro)!;
+        const esVariante = maestro !== codigoInterno;
+
+        const snapshots = (await mysqlQuery(`
+            SELECT Exi, PVD, Costo, Fecha FROM tblInventariosCostosActual
+            WHERE IdTienda = ? AND CodigoInterno = ? LIMIT 1
+        `, [idTienda, maestro]).catch(() => [])) as Row[];
 
         // Base y fecha de corte: snapshot nocturno, o el último ajuste si es más nuevo
         const snapshot = snapshots?.[0] ?? null;
@@ -72,7 +81,7 @@ export async function GET(request: Request) {
                     ON D.IdAjusteInventario = C.IdAjusteInventario AND D.IdTienda = C.IdTienda
             WHERE D.CodigoInterno = ? AND D.IdTienda = ?
             ORDER BY C.FechaAjuste DESC LIMIT 1
-        `, [codigoInterno, idTienda]).catch(() => [])) as Row[];
+        `, [maestro, idTienda]).catch(() => [])) as Row[];
         const ajuste = ajustes?.[0];
         if (ajuste?.FechaAjuste) {
             const fechaAjuste = new Date(String(ajuste.FechaAjuste));
@@ -88,12 +97,9 @@ export async function GET(request: Request) {
         }
         const desde = corte.toISOString().slice(0, 19).replace('T', ' ');
 
-        // Familia: el artículo (Factor 1) + sus variantes de kit (Mov/Factor)
-        const factores = new Map<number, number>([[codigoInterno, 1]]);
-        for (const k of kits ?? []) {
-            const factor = num(k.Factor);
-            factores.set(num(k.CodigoInterno), factor > 0 ? factor : 1);
-        }
+        // Familia recursiva del maestro: variantes y nietas con el Factor
+        // acumulado (p.ej. maestro → 076 → 1076), como el REPLACE del Java
+        const factores = familiaDelMaestro(maestro, kits);
         const codigos = [...factores.keys()];
         const marcas = codigos.map(() => '?').join(',');
         const advertencias: string[] = [];
@@ -252,6 +258,14 @@ export async function GET(request: Request) {
             },
             desdeElCorte: { entradas, salidas },
             variantesKit: codigos.length - 1,
+            // Cuando se consulta una variante, se avisa que la cifra es del maestro
+            varianteConsultada: esVariante
+                ? {
+                    codigoInterno,
+                    codigoBarras: String(pedido.CodigoBarras ?? '').trim(),
+                    descripcion: String(pedido.Descripcion ?? '').trim(),
+                }
+                : null,
             advertencias,
         });
     } catch (error) {

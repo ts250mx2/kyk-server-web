@@ -113,6 +113,14 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   local del resultado y export PDF/Excel. Clic en un artículo abre el **modal de movimientos**
   (`method=mov` sobre el buffer de la consulta) con fecha, concepto, usuario, real y equivalencia.
 
+- **Kits recursivos** ([src/lib/kits.ts](src/lib/kits.ts)): regla portada del webservice
+  (InventariosPerpetuos.java:454 / kykinvservices.java:2146). `tblKits` liga hijo → padre con
+  Factor y es **recursivo**: el nieto pertenece al maestro raíz con factores multiplicados
+  (p.ej. 7501147529384 → 076 → 1076), sin atravesar intermedios con `TipoOperacion = 4`. Se
+  aplica en Existencias (familia completa del maestro para el delta del día; consultar una
+  variante redirige al maestro con aviso), Quiebre de Stock y Quiebres/Sobre-inventario
+  (las filas de variantes del corte se pliegan al maestro con Exi/Factor y PVD/Factor).
+
 - **Inventarios → Existencias** (`/dashboard/inventarios/existencias`): consulta rápida por
   artículo pensada para **escanear el código de barras** (lector de teclado + Enter) o teclear
   la descripción. Muestra existencia estimada (corte + entradas/salidas del día, con desglose y
