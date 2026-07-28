@@ -272,8 +272,10 @@ export default function InventariosPage() {
                 </div>
             </div>
 
-            {/* Filtros */}
-            <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 backdrop-blur-xl">
+            {/* Filtros: relative z-20 para que el drilldown de proveedores se pinte
+                encima del resumen y la tabla (cada tarjeta con backdrop-blur crea su
+                propio stacking context y atraparía el z-index de la lista) */}
+            <div className="relative z-20 bg-white/[0.04] border border-white/10 rounded-2xl p-4 backdrop-blur-xl">
                 <div className="flex flex-wrap gap-3 items-end">
                     <div className="flex-1 min-w-[260px] relative">
                         <span className={lbl}>Proveedor</span>
