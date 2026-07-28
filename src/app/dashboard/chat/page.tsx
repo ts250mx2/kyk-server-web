@@ -41,6 +41,8 @@ export default function ChatPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState("")
     const [miCodigo, setMiCodigo] = useState("")
+    // Clave tienda+usuario para aislar la conversación con Kesito en la pestaña
+    const [claveKesito, setClaveKesito] = useState("")
     const [tiendas, setTiendas] = useState<Map<number, string>>(new Map())
 
     // Composer
@@ -63,8 +65,12 @@ export default function ChatPage() {
     useEffect(() => {
         fetch("/api/auth/me")
             .then(r => r.json())
-            .then(d => setMiCodigo(d.user?.codigobarras ?? ""))
-            .catch(() => { /* sin identidad los mensajes salen a la izquierda */ })
+            .then(d => {
+                setMiCodigo(d.user?.codigobarras ?? "")
+                setClaveKesito(`${d.user?.idTienda ?? 0}-${d.user?.codigobarras ?? "anon"}`)
+            })
+            // Sin identidad los mensajes salen a la izquierda y Kesito usa clave genérica
+            .catch(() => setClaveKesito("anon"))
         fetch("/api/auth/tiendas")
             .then(r => r.json())
             .then(d => setTiendas(new Map((d.tiendas ?? []).map((t: TiendaOption) => [t.IdTienda, t.Tienda]))))
@@ -78,7 +84,12 @@ export default function ChatPage() {
             const json = await res.json()
             if (res.ok) {
                 setCanales(json.canales)
-                setCanalSel(prev => prev || json.canales[0]?.canal || "")
+                // Deep link: /dashboard/chat?canal=kesito (o cualquier canal propio)
+                const deseado = new URLSearchParams(window.location.search).get("canal")
+                const inicial = deseado && (deseado === CANAL_KESITO || json.canales.some((c: Canal) => c.canal === deseado))
+                    ? deseado
+                    : ""
+                setCanalSel(prev => prev || inicial || json.canales[0]?.canal || "")
             }
         } catch { /* reintenta en el siguiente poll */ }
     }, [])
@@ -222,7 +233,13 @@ export default function ChatPage() {
 
             {/* Conversación: el canal Kesito se atiende con el agente, el resto con BDKYKPortal */}
             {canalSel === CANAL_KESITO ? (
-                <KesitoPanel />
+                claveKesito ? (
+                    <KesitoPanel key={claveKesito} claveSesion={claveKesito} />
+                ) : (
+                    <div className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl flex items-center justify-center">
+                        <Loader2 className="h-7 w-7 text-amber-400 animate-spin" />
+                    </div>
+                )
             ) : (
             <div className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl flex flex-col overflow-hidden">
                 <div className="px-5 py-3 border-b border-white/[0.06] flex items-center gap-2">

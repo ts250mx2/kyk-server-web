@@ -108,6 +108,15 @@ export function Header({ isCollapsed = false }: { isCollapsed?: boolean }) {
             {/* Usuario y salir */}
             <div className="flex items-center gap-3">
                 <Link
+                    href="/dashboard/chat?canal=kesito"
+                    className="p-2 rounded-xl bg-white/[0.05] border border-white/10 hover:border-amber-500/30 hover:bg-amber-500/10 transition-all"
+                    title="Pregúntale a Kesito"
+                    aria-label="Pregúntale a Kesito"
+                >
+                    <span className="block h-4 w-4 text-[13px] leading-4 text-center" aria-hidden>🧀</span>
+                </Link>
+
+                <Link
                     href="/dashboard/comunicados"
                     className={cn(
                         "relative p-2 rounded-xl border transition-all",

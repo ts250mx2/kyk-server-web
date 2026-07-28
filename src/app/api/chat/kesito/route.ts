@@ -16,6 +16,35 @@ const MAX_RESULTADO = 12_000;
 
 const HOY = () => new Date().toLocaleDateString('sv-SE');
 
+// Rate limit sencillo en memoria: cada pregunta puede disparar hasta 7 llamadas
+// al modelo, así que se acota por usuario para proteger la factura.
+const LIMITE_VENTANA_MS = 60_000;
+const LIMITE_PREGUNTAS_POR_MINUTO = 10;
+const ventanasDeUso = new Map<string, number[]>();
+
+function excedeLimite(clave: string): boolean {
+    const ahora = Date.now();
+    const recientes = (ventanasDeUso.get(clave) ?? []).filter(t => ahora - t < LIMITE_VENTANA_MS);
+    const excede = recientes.length >= LIMITE_PREGUNTAS_POR_MINUTO;
+    ventanasDeUso.set(clave, excede ? recientes : [...recientes, ahora]);
+    return excede;
+}
+
+// Etiquetas amigables para narrar en el chat qué está consultando el agente
+const ETIQUETA_HERRAMIENTA: Record<string, string> = {
+    resumen_del_dia: 'el resumen del día',
+    buscar_articulo_precio: 'precios de artículos',
+    detalle_articulo: 'el detalle del artículo',
+    ofertas: 'las ofertas',
+    precios_bascula: 'los precios de báscula',
+    cortes_de_caja: 'los cortes de caja',
+    recibos: 'los recibos de mercancía',
+    transferencias: 'las transferencias',
+    facturas: 'las facturas',
+    devoluciones_venta: 'las devoluciones de venta',
+    devoluciones_compra: 'las devoluciones de compra',
+};
+
 const HERRAMIENTAS: Anthropic.Tool[] = [
     {
         name: 'resumen_del_dia',
@@ -139,6 +168,9 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
             },
             required: ['tipo'],
         },
+        // Marca el final del prefijo cacheable (herramientas + system) para
+        // no repagar esos tokens en cada iteración del loop ni en cada pregunta
+        cache_control: { type: 'ephemeral' },
     },
 ];
 
@@ -197,6 +229,13 @@ function compactar(valor: unknown, limiteLista = 25): unknown {
     return valor;
 }
 
+// Respuesta en streaming NDJSON (una línea JSON por evento):
+//   {t:'delta', texto}  — fragmento de texto de la respuesta en curso
+//   {t:'reinicio'}      — descartar el borrador: viene una ronda de herramientas
+//   {t:'estado', texto} — qué está consultando el agente en este momento
+//   {t:'fin'}           — respuesta completa
+//   {t:'error', error}  — falla a media respuesta
+// Los errores previos al stream (401/400/429/503) salen como JSON normal.
 export async function POST(request: Request) {
     const session = await getSession();
     if (!session) {
@@ -205,31 +244,43 @@ export async function POST(request: Request) {
     if (!process.env.ANTHROPIC_API_KEY) {
         return NextResponse.json({ error: 'El agente no está configurado (falta ANTHROPIC_API_KEY)' }, { status: 503 });
     }
+    if (excedeLimite(`${session.idTienda}:${session.codigobarras}`)) {
+        return NextResponse.json(
+            { error: 'Muy rápido: espera un momento antes de volver a preguntar.' },
+            { status: 429 }
+        );
+    }
 
+    let pregunta = '';
+    let historial: unknown = null;
     try {
-        const { mensaje, historial } = await request.json();
-        const pregunta = String(mensaje ?? '').trim().slice(0, 2000);
-        if (!pregunta) {
-            return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 });
+        const cuerpo = await request.json();
+        pregunta = String(cuerpo?.mensaje ?? '').trim().slice(0, 2000);
+        historial = cuerpo?.historial;
+    } catch {
+        return NextResponse.json({ error: 'Cuerpo inválido' }, { status: 400 });
+    }
+    if (!pregunta) {
+        return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 });
+    }
+
+    const origen = new URL(request.url).origin;
+    const cookie = request.headers.get('cookie') ?? '';
+
+    const ejecutarHerramienta = async (nombre: string, entrada: Entrada): Promise<string> => {
+        const ruta = urlDeHerramienta(nombre, entrada);
+        if (!ruta) return JSON.stringify({ error: 'Herramienta desconocida' });
+        try {
+            const res = await fetch(`${origen}${ruta}`, { headers: { cookie } });
+            const json = await res.json();
+            if (!res.ok) return JSON.stringify({ error: json.error ?? `HTTP ${res.status}` });
+            return JSON.stringify(compactar(json)).slice(0, MAX_RESULTADO);
+        } catch {
+            return JSON.stringify({ error: 'No fue posible consultar los datos de la tienda' });
         }
+    };
 
-        const origen = new URL(request.url).origin;
-        const cookie = request.headers.get('cookie') ?? '';
-
-        const ejecutarHerramienta = async (nombre: string, entrada: Entrada): Promise<string> => {
-            const ruta = urlDeHerramienta(nombre, entrada);
-            if (!ruta) return JSON.stringify({ error: 'Herramienta desconocida' });
-            try {
-                const res = await fetch(`${origen}${ruta}`, { headers: { cookie } });
-                const json = await res.json();
-                if (!res.ok) return JSON.stringify({ error: json.error ?? `HTTP ${res.status}` });
-                return JSON.stringify(compactar(json)).slice(0, MAX_RESULTADO);
-            } catch {
-                return JSON.stringify({ error: 'No fue posible consultar los datos de la tienda' });
-            }
-        };
-
-        const sistema = `Eres Kesito, el agente inteligente del portal KYK Server Web de la tienda ${session.tienda}.
+    const sistema = `Eres Kesito, el agente inteligente del portal KYK Server Web de la tienda ${session.tienda}.
 Hoy es ${HOY()}.
 
 SOLO respondes con la información disponible en este portal, consultándola con tus herramientas: precios y ofertas de artículos, precios de báscula, resumen del día, cortes de caja, facturas, recibos de mercancía, transferencias, devoluciones de venta y devoluciones de compra — siempre de la tienda ${session.tienda}.
@@ -240,63 +291,91 @@ Reglas:
 - Responde en español, breve y directo. Montos con formato $#,##0.00.
 - En listas muestra máximo 10 renglones y ofrece afinar la búsqueda si hay más.`;
 
-        const mensajes: Anthropic.MessageParam[] = [];
-        if (Array.isArray(historial)) {
-            for (const h of historial.slice(-MAX_HISTORIAL)) {
-                const rol = h?.rol === 'assistant' ? 'assistant' : 'user';
-                const texto = String(h?.texto ?? '').slice(0, 2000);
-                if (texto) mensajes.push({ role: rol, content: texto });
-            }
+    const mensajes: Anthropic.MessageParam[] = [];
+    if (Array.isArray(historial)) {
+        for (const h of historial.slice(-MAX_HISTORIAL)) {
+            const rol = h?.rol === 'assistant' ? 'assistant' : 'user';
+            const texto = String(h?.texto ?? '').slice(0, 2000);
+            if (texto) mensajes.push({ role: rol, content: texto });
         }
-        mensajes.push({ role: 'user', content: pregunta });
-
-        const anthropic = new Anthropic();
-        let respuesta = '';
-
-        for (let i = 0; i < MAX_ITERACIONES; i++) {
-            const resultado = await anthropic.messages.create({
-                model: MODELO,
-                max_tokens: 1500,
-                system: sistema,
-                tools: HERRAMIENTAS,
-                messages: mensajes,
-            });
-
-            const usosDeHerramienta = resultado.content.filter(
-                (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
-            );
-
-            if (resultado.stop_reason !== 'tool_use' || usosDeHerramienta.length === 0) {
-                respuesta = resultado.content
-                    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-                    .map(b => b.text)
-                    .join('\n')
-                    .trim();
-                break;
-            }
-
-            mensajes.push({ role: 'assistant', content: resultado.content });
-            const resultados: Anthropic.ToolResultBlockParam[] = [];
-            for (const uso of usosDeHerramienta) {
-                resultados.push({
-                    type: 'tool_result',
-                    tool_use_id: uso.id,
-                    content: await ejecutarHerramienta(uso.name, uso.input as Entrada),
-                });
-            }
-            mensajes.push({ role: 'user', content: resultados });
-        }
-
-        if (!respuesta) {
-            respuesta = 'No pude completar la consulta, intenta preguntarlo de otra forma.';
-        }
-
-        return NextResponse.json({ respuesta });
-    } catch (error) {
-        console.error('Error en Kesito del portal:', error);
-        return NextResponse.json(
-            { error: 'El agente no pudo responder, intenta de nuevo.' },
-            { status: 502 }
-        );
     }
+    mensajes.push({ role: 'user', content: pregunta });
+
+    const anthropic = new Anthropic();
+    const codificador = new TextEncoder();
+
+    const stream = new ReadableStream({
+        async start(controller) {
+            // Si el cliente corta la conexión se deja de emitir y el loop se corta
+            let conexionViva = true;
+            const emitir = (evento: Record<string, unknown>) => {
+                if (!conexionViva) return;
+                try {
+                    controller.enqueue(codificador.encode(JSON.stringify(evento) + '\n'));
+                } catch {
+                    conexionViva = false;
+                }
+            };
+
+            try {
+                let terminado = false;
+                for (let i = 0; i < MAX_ITERACIONES && conexionViva; i++) {
+                    const streamModelo = anthropic.messages.stream({
+                        model: MODELO,
+                        max_tokens: 1500,
+                        // system como bloque para que el prefijo herramientas+system se cachee
+                        system: [{ type: 'text', text: sistema, cache_control: { type: 'ephemeral' } }],
+                        tools: HERRAMIENTAS,
+                        messages: mensajes,
+                    });
+                    streamModelo.on('text', delta => emitir({ t: 'delta', texto: delta }));
+                    const resultado = await streamModelo.finalMessage();
+
+                    const usosDeHerramienta = resultado.content.filter(
+                        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+                    );
+                    if (resultado.stop_reason !== 'tool_use' || usosDeHerramienta.length === 0) {
+                        terminado = true;
+                        break;
+                    }
+
+                    // El texto emitido antes de las herramientas era preámbulo: se descarta
+                    emitir({ t: 'reinicio' });
+                    mensajes.push({ role: 'assistant', content: resultado.content });
+                    const resultados: Anthropic.ToolResultBlockParam[] = [];
+                    for (const uso of usosDeHerramienta) {
+                        emitir({
+                            t: 'estado',
+                            texto: `Consultando ${ETIQUETA_HERRAMIENTA[uso.name] ?? 'datos de la tienda'}...`,
+                        });
+                        resultados.push({
+                            type: 'tool_result',
+                            tool_use_id: uso.id,
+                            content: await ejecutarHerramienta(uso.name, uso.input as Entrada),
+                        });
+                    }
+                    mensajes.push({ role: 'user', content: resultados });
+                }
+
+                if (!terminado) {
+                    emitir({ t: 'reinicio' });
+                    emitir({ t: 'delta', texto: 'No pude completar la consulta, intenta preguntarlo de otra forma.' });
+                }
+                emitir({ t: 'fin' });
+            } catch (error) {
+                console.error('Error en Kesito del portal:', error);
+                emitir({ t: 'error', error: 'El agente no pudo responder, intenta de nuevo.' });
+            } finally {
+                try { controller.close(); } catch { /* ya cerrado por el cliente */ }
+            }
+        },
+    });
+
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'application/x-ndjson; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Accel-Buffering': 'no',
+        },
+    });
 }

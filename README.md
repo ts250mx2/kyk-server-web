@@ -170,8 +170,15 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   báscula, cortes de caja, recibos, transferencias, facturas y devoluciones (venta y compra).
   El system prompt lo acota estrictamente a ese alcance (nada de SQL libre ni temas generales).
   Resultados compactados (listas recortadas + tope de 12 KB) para controlar tokens; máx. 6
-  iteraciones de herramientas y últimos 12 mensajes de historial. Sugerencias de arranque,
-  indicador de "escribiendo", botón de nueva conversación y Enter envía.
+  iteraciones de herramientas y últimos 12 mensajes de historial. La respuesta llega por
+  **streaming NDJSON**: el panel muestra el texto en vivo y narra cada consulta del agente
+  ("Consultando las ofertas..."); timeout de 125 s con `AbortController` en el cliente.
+  Respuestas con **markdown ligero** (react-markdown + remark-gfm: negritas, listas y tablas;
+  sin HTML crudo). Control de costo: **prompt caching** (`cache_control` en herramientas +
+  system, se reusa en cada iteración del loop) y **rate limit** en memoria de 10 preguntas por
+  minuto por usuario (HTTP 429). La conversación se aísla por tienda+usuario en la clave de
+  `sessionStorage`. Deep link `/dashboard/chat?canal=kesito` y acceso directo 🧀 en el header.
+  Sugerencias de arranque, botón de nueva conversación y Enter envía.
 
 ### Exportación (Precios y Ofertas)
 
