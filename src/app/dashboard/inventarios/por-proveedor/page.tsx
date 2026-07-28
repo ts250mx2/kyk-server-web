@@ -6,7 +6,7 @@ import {
     FileText, FileSpreadsheet
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fmtInt, fmtFechaHora } from "@/lib/format"
+import { fmtInt, fmtFechaHora, fmtHora } from "@/lib/format"
 import { exportarPdf, exportarExcel, obtenerTiendaSesion, sufijoArchivo } from "@/lib/export"
 import { AnalisisProfundoModal, BotonAnalisisProfundo, type PageSummaryContext } from "@/components/dashboard/AnalisisProfundo"
 
@@ -62,6 +62,17 @@ const ESTATUS: Record<number, { etiqueta: string; titulo: string; cls: string }>
 const decFmt = new Intl.NumberFormat("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtDec = (n: number) => decFmt.format(n || 0)
 
+// La consulta persiste en sessionStorage (recalcularla cuesta minutos): al
+// volver a la página se restauran proveedor, días y el resultado, validando
+// que sigan siendo de la misma tienda. Se pierde al cerrar la pestaña.
+const CLAVE_STORAGE = "inventarios-proveedor"
+
+interface Consulta {
+    proveedor: string
+    dias: number
+    en?: string
+}
+
 export default function InventariosPage() {
     const [proveedores, setProveedores] = useState<Proveedor[]>([])
     const [cargandoProveedores, setCargandoProveedores] = useState(true)
@@ -73,13 +84,14 @@ export default function InventariosPage() {
 
     const [diasPedido, setDiasPedido] = useState("")
     const [articulos, setArticulos] = useState<ArticuloInventario[]>([])
-    const [consultado, setConsultado] = useState<{ proveedor: string; dias: number } | null>(null)
+    const [consultado, setConsultado] = useState<Consulta | null>(null)
     const [filtroArticulos, setFiltroArticulos] = useState("")
     const [cargando, setCargando] = useState(false)
     const [segundos, setSegundos] = useState(0)
     const [error, setError] = useState("")
     const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null)
     const [tienda, setTienda] = useState("")
+    const [idTienda, setIdTienda] = useState(0)
     const [analisisAbierto, setAnalisisAbierto] = useState(false)
 
     // Modal de movimientos
@@ -111,12 +123,43 @@ export default function InventariosPage() {
             .catch(() => setError("Error al consultar los proveedores de la tienda"))
             .finally(() => setCargandoProveedores(false))
 
-        // Nombre de la tienda para el alcance del análisis profundo
+        // Identidad de la tienda: alcance del análisis y validación de la
+        // consulta persistida (se restaura solo si es de la misma tienda).
+        // La restauración va después de la hidratación para no desfasar el SSR.
         fetch("/api/auth/me")
             .then(r => r.json())
-            .then(d => setTienda(d.user?.tienda ?? ""))
-            .catch(() => { /* el análisis usa alcance genérico */ })
+            .then(d => {
+                setTienda(d.user?.tienda ?? "")
+                const idT = Number(d.user?.idTienda) || 0
+                setIdTienda(idT)
+                if (!idT) return
+                try {
+                    const crudo = sessionStorage.getItem(CLAVE_STORAGE)
+                    const e = crudo ? JSON.parse(crudo) : null
+                    if (!e || e.idTienda !== idT) {
+                        if (e) sessionStorage.removeItem(CLAVE_STORAGE)
+                        return
+                    }
+                    if (typeof e.filtroProv === "string") setFiltroProv(e.filtroProv)
+                    if (e.proveedorSel?.idProveedor) setProveedorSel(e.proveedorSel)
+                    if (typeof e.diasPedido === "string") setDiasPedido(e.diasPedido)
+                    if (Array.isArray(e.articulos)) setArticulos(e.articulos)
+                    if (e.consultado?.proveedor) setConsultado(e.consultado)
+                } catch { /* estado guardado ilegible: se inicia limpio */ }
+            })
+            .catch(() => { /* sin identidad no hay persistencia ni alcance */ })
     }, [])
+
+    // Guarda la consulta al cambiar (solo con la identidad ya validada, para
+    // no pisar lo guardado con el estado vacío del primer render)
+    useEffect(() => {
+        if (!idTienda) return
+        try {
+            sessionStorage.setItem(CLAVE_STORAGE, JSON.stringify({
+                idTienda, filtroProv, proveedorSel, diasPedido, articulos, consultado,
+            }))
+        } catch { /* p.ej. cuota llena: la página sigue sin persistencia */ }
+    }, [idTienda, filtroProv, proveedorSel, diasPedido, articulos, consultado])
 
     // Contador de espera: el servicio recalcula el inventario y puede tardar minutos
     useEffect(() => {
@@ -158,7 +201,7 @@ export default function InventariosPage() {
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || "Error al consultar el inventario")
             setArticulos(json.articulos)
-            setConsultado({ proveedor: proveedorSel.proveedor, dias })
+            setConsultado({ proveedor: proveedorSel.proveedor, dias, en: new Date().toISOString() })
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Error al consultar el inventario")
             setArticulos([])
@@ -324,7 +367,7 @@ export default function InventariosPage() {
                         {cargando
                             ? `Calculando inventario en la tienda... ${segundos}s`
                             : consultado
-                                ? `${consultado.proveedor} · ${fmtInt(resumen.total)} artículos`
+                                ? `${consultado.proveedor} · ${fmtInt(resumen.total)} artículos${consultado.en ? ` · consultado a las ${fmtHora(consultado.en)}` : ""}`
                                 : "Existencias por proveedor de tu tienda"}
                     </p>
                 </div>
