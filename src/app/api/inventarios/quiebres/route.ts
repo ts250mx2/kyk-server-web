@@ -53,23 +53,19 @@ export async function GET(request: Request) {
 
         const corteFecha = String(snapshotRows[0].Fecha ?? '').slice(0, 10);
 
-        // Consolidación de kits (regla recursiva del webservice, lib/kits): las
-        // filas de variantes del corte se pliegan a su maestro raíz con
-        // Exi/Factor y PVD/Factor antes de evaluar quiebres o exceso — así las
-        // partes de kit no aparecen como quiebres o excesos falsos.
+        // Kits (regla recursiva del webservice, lib/kits): el corte Fast YA
+        // consolida — la fila del maestro incluye a toda su familia. Las filas
+        // de variantes que llegan al corte son un artefacto duplicado (puras
+        // salidas, negativas) y se DESCARTAN: sumarlas al maestro le restaría
+        // ventas ya descontadas y generaría quiebres/excesos falsos.
         const kits = await cargarKits(idTienda);
-        const consolidado = new Map<number, { exi: number; pvd: number; costo: number }>();
+        const baseConsolidada: { codigo: number; exi: number; pvd: number; costo: number }[] = [];
         for (const r of snapshotRows) {
             const codigo = num(r.CodigoInterno);
-            const { maestro, factor } = resolverMaestro(codigo, kits);
-            const acumulado = consolidado.get(maestro) ?? { exi: 0, pvd: 0, costo: 0 };
-            consolidado.set(maestro, {
-                exi: acumulado.exi + num(r.Exi) / factor,
-                pvd: acumulado.pvd + num(r.PVD) / factor,
-                costo: maestro === codigo ? num(r.Costo) : acumulado.costo,
-            });
+            const { maestro } = resolverMaestro(codigo, kits);
+            if (maestro !== codigo) continue;
+            baseConsolidada.push({ codigo, exi: num(r.Exi), pvd: num(r.PVD), costo: num(r.Costo) });
         }
-        const baseConsolidada = [...consolidado.entries()].map(([codigo, v]) => ({ codigo, ...v }));
 
         // Preselección y orden con datos del central; nombres/estatus al final
         interface Candidato {

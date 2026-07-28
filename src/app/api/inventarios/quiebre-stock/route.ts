@@ -62,30 +62,26 @@ export async function GET(request: Request) {
             diasQuiebrePorCodigo.set(num(h.CodigoInterno), num(h.DiasQuiebre));
         }
 
-        // Consolidación de kits con la regla recursiva del webservice (lib/kits):
-        // el hijo vende con su código pero el inventario vive en el maestro raíz
-        // (factores multiplicados, sin atravesar intermedios TipoOperacion 4).
-        // El corte Fast ya consolida, pero si trae filas de variantes (ligas de
-        // kit dadas de alta después de generar historial, o faltantes) el hijo
-        // solo acumula salidas y se ve "roto" para siempre: aquí se pliega al
-        // maestro en vez de listarse.
+        // Kits (regla recursiva del webservice, lib/kits): el corte Fast YA
+        // consolida los kits cada noche — la fila del maestro incluye los
+        // movimientos de toda su familia. Las filas de variantes que llegan al
+        // corte son un ARTEFACTO duplicado (el buffer de kits del Java conserva
+        // la liga hijo→intermedio junto a hijo→maestro y agrupa esas ventas dos
+        // veces): traen puras salidas y salen negativas. Se DESCARTAN — sumarlas
+        // al maestro le restaría ventas ya descontadas y lo haría ver en quiebre
+        // cuando el cálculo vivo (Por Proveedor) muestra existencia sana.
         const kits = await cargarKits(idTienda);
-        const consolidado = new Map<number, { exi: number; pvd: number; variantes: number }>();
+        const consolidado: { codigo: number; exi: number; pvd: number }[] = [];
         for (const r of snapshotRows) {
             const codigo = num(r.CodigoInterno);
-            const { maestro, factor } = resolverMaestro(codigo, kits);
-            const acumulado = consolidado.get(maestro) ?? { exi: 0, pvd: 0, variantes: 0 };
-            consolidado.set(maestro, {
-                exi: acumulado.exi + num(r.Exi) / factor,
-                pvd: acumulado.pvd + num(r.PVD) / factor,
-                variantes: acumulado.variantes + (maestro !== codigo ? 1 : 0),
-            });
+            const { maestro } = resolverMaestro(codigo, kits);
+            if (maestro !== codigo) continue;
+            consolidado.push({ codigo, exi: num(r.Exi), pvd: num(r.PVD) });
         }
 
-        // Denominador del KPI: SKUs (ya consolidados) con demanda reciente
-        const conVenta = [...consolidado.entries()].filter(([, v]) => v.pvd > 0);
+        // Denominador del KPI: SKUs maestros con demanda reciente
+        const conVenta = consolidado.filter(c => c.pvd > 0);
         let candidatos = conVenta
-            .map(([codigo, v]) => ({ codigo, exi: v.exi, pvd: v.pvd, variantes: v.variantes }))
             .filter(c => c.exi <= umbral)
             .sort((a, b) => b.pvd - a.pvd);
         const truncado = candidatos.length > MAX_FILAS;
