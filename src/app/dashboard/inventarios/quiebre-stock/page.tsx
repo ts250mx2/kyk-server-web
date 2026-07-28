@@ -20,6 +20,7 @@ interface ItemQuiebre {
     stock: number
     pvd: number
     variantes: number
+    variantesDetalle: { codigoInterno: number; codigoBarras: string; descripcion: string; nivel: number }[]
     precio: number
     diasQuiebre: number
     ventaDiaria: number
@@ -585,10 +586,17 @@ export default function QuiebreStockPage() {
                                                                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
                                                                     <span className="text-cyan-300">{it.codigoBarras}</span>
                                                                     {it.depto && ` · ${it.depto}`}
-                                                                    {it.variantes > 0 && (
-                                                                        <span className="text-violet-300"> · incluye {it.variantes} variante{it.variantes > 1 ? "s" : ""} de kit</span>
-                                                                    )}
                                                                 </p>
+                                                                {it.variantesDetalle.map(v => (
+                                                                    <p
+                                                                        key={v.codigoInterno}
+                                                                        className="text-[10px] font-bold text-violet-300/90"
+                                                                        style={{ paddingLeft: `${v.nivel * 12}px` }}
+                                                                        title={`Variante de kit (nivel ${v.nivel})`}
+                                                                    >
+                                                                        ↳ <span className="font-black">{v.codigoBarras}</span> · {v.descripcion}
+                                                                    </p>
+                                                                ))}
                                                             </td>
                                                             <td className="px-4 py-2.5 text-center whitespace-nowrap">
                                                                 <span className={cn("text-[10px] font-black rounded-md px-2 py-0.5 border uppercase", sev.cls)}>
@@ -712,10 +720,17 @@ export default function QuiebreStockPage() {
                                                     </p>
                                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
                                                         <span className="text-cyan-300">{it.codigoBarras}</span>
-                                                        {it.variantes > 0 && (
-                                                            <span className="text-violet-300"> · incluye {it.variantes} variante{it.variantes > 1 ? "s" : ""}</span>
-                                                        )}
                                                     </p>
+                                                    {it.variantesDetalle.map(v => (
+                                                        <p
+                                                            key={v.codigoInterno}
+                                                            className="text-[10px] font-bold text-violet-300/90"
+                                                            style={{ paddingLeft: `${v.nivel * 12}px` }}
+                                                            title={`Variante de kit (nivel ${v.nivel})`}
+                                                        >
+                                                            ↳ <span className="font-black">{v.codigoBarras}</span> · {v.descripcion}
+                                                        </p>
+                                                    ))}
                                                 </td>
                                                 <td className="px-4 py-2.5 text-center whitespace-nowrap">
                                                     <span className={cn("text-[10px] font-black rounded-md px-2 py-0.5 border uppercase", sev.cls)}>

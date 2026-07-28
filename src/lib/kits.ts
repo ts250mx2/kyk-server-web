@@ -66,12 +66,13 @@ export function resolverMaestro(codigo: number, kits: Kits): { maestro: number; 
     return { maestro: actual, factor };
 }
 
-// Familia completa de un maestro: él mismo (Factor 1) más TODOS sus
-// descendientes con el factor acumulado (los movimientos de cada variante
-// aportan Mov/Factor al maestro). No se desciende a través de intermedios
-// con TipoOperacion = 4, igual que la recursión del Java.
-export function familiaDelMaestro(maestro: number, kits: Kits): Map<number, number> {
-    const familia = new Map<number, number>([[maestro, 1]]);
+// Familia completa de un maestro: él mismo (Factor 1, nivel 0) más TODOS sus
+// descendientes con el factor acumulado y su nivel en la cadena (hijo = 1,
+// nieto = 2...). Los movimientos de cada variante aportan Mov/Factor al
+// maestro. No se desciende a través de intermedios con TipoOperacion = 4,
+// igual que la recursión del Java.
+export function familiaDetallada(maestro: number, kits: Kits): Map<number, { factor: number; nivel: number }> {
+    const familia = new Map<number, { factor: number; nivel: number }>([[maestro, { factor: 1, nivel: 0 }]]);
     let frontera: { codigo: number; factor: number }[] = [{ codigo: maestro, factor: 1 }];
     for (let nivel = 0; nivel < MAX_NIVELES && frontera.length > 0; nivel++) {
         const siguiente: { codigo: number; factor: number }[] = [];
@@ -80,11 +81,16 @@ export function familiaDelMaestro(maestro: number, kits: Kits): Map<number, numb
             for (const h of kits.hijosDe.get(nodo.codigo) ?? []) {
                 if (familia.has(h.hijo)) continue;
                 const factor = nodo.factor * h.factor;
-                familia.set(h.hijo, factor);
+                familia.set(h.hijo, { factor, nivel: nivel + 1 });
                 siguiente.push({ codigo: h.hijo, factor });
             }
         }
         frontera = siguiente;
     }
     return familia;
+}
+
+// Versión plana (código → factor) para las sumas de movimientos
+export function familiaDelMaestro(maestro: number, kits: Kits): Map<number, number> {
+    return new Map([...familiaDetallada(maestro, kits)].map(([codigo, v]) => [codigo, v.factor]));
 }

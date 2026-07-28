@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { tiendaQuery } from '@/lib/tienda-db';
 import { mysqlQuery } from '@/lib/mysql';
-import { cargarKits, familiaDelMaestro, resolverMaestro } from '@/lib/kits';
+import { cargarKits, familiaDetallada, resolverMaestro } from '@/lib/kits';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -98,9 +98,22 @@ export async function GET(request: Request) {
         const desde = corte.toISOString().slice(0, 19).replace('T', ' ');
 
         // Familia recursiva del maestro: variantes y nietas con el Factor
-        // acumulado (p.ej. maestro → 076 → 1076), como el REPLACE del Java
-        const factores = familiaDelMaestro(maestro, kits);
+        // acumulado y su nivel (p.ej. maestro → 076 → 1076), como el Java
+        const familia = familiaDetallada(maestro, kits);
+        const factores = new Map([...familia].map(([codigo, v]) => [codigo, v.factor]));
         const codigos = [...factores.keys()];
+
+        // Fichas de las variantes, para listar qué incluye la familia
+        const codigosVariantes = codigos.filter(c => c !== maestro);
+        const fichasVariantes = new Map<number, Row>();
+        if (codigosVariantes.length > 0) {
+            const marcasVar = codigosVariantes.map(() => '?').join(',');
+            const filasVar = (await tiendaQuery(idTienda, `
+                SELECT CodigoInterno, CodigoBarras, Descripcion
+                FROM tblArticulos WHERE CodigoInterno IN (${marcasVar})
+            `, codigosVariantes).catch(() => [])) as Row[];
+            for (const f of filasVar ?? []) fichasVariantes.set(num(f.CodigoInterno), f);
+        }
         const marcas = codigos.map(() => '?').join(',');
         const advertencias: string[] = [];
 
@@ -258,6 +271,18 @@ export async function GET(request: Request) {
             },
             desdeElCorte: { entradas, salidas },
             variantesKit: codigos.length - 1,
+            // Cadena completa de variantes (nivel 1 = hija, 2 = nieta...)
+            variantes: codigosVariantes
+                .map(codigo => {
+                    const ficha = fichasVariantes.get(codigo);
+                    return {
+                        codigoInterno: codigo,
+                        codigoBarras: String(ficha?.CodigoBarras ?? '').trim(),
+                        descripcion: String(ficha?.Descripcion ?? `Código ${codigo}`).trim(),
+                        nivel: familia.get(codigo)?.nivel ?? 1,
+                    };
+                })
+                .sort((a, b) => a.nivel - b.nivel || a.descripcion.localeCompare(b.descripcion)),
             // Cuando se consulta una variante, se avisa que la cifra es del maestro
             varianteConsultada: esVariante
                 ? {

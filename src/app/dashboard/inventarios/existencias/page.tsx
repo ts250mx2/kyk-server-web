@@ -32,6 +32,7 @@ interface Existencia {
     }
     desdeElCorte: { entradas: number; salidas: number }
     variantesKit: number
+    variantes: { codigoInterno: number; codigoBarras: string; descripcion: string; nivel: number }[]
     varianteConsultada: { codigoInterno: number; codigoBarras: string; descripcion: string } | null
     advertencias: string[]
 }
@@ -256,6 +257,21 @@ export default function ExistenciasPage() {
                                     : "Sin corte de inventario — solo movimientos de 30 días"}
                         </p>
                     </div>
+
+                    {existencia.variantes.length > 0 && (
+                        <div className="space-y-0.5">
+                            {existencia.variantes.map(v => (
+                                <p
+                                    key={v.codigoInterno}
+                                    className="text-[11px] font-bold text-violet-300/90"
+                                    style={{ paddingLeft: `${(v.nivel - 1) * 14}px` }}
+                                    title={`Variante de kit (nivel ${v.nivel}) — sus movimientos aportan al maestro`}
+                                >
+                                    ↳ <span className="font-black">{v.codigoBarras}</span> · {v.descripcion}
+                                </p>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                         <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-4">

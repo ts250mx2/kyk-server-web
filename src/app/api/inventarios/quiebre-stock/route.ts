@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { tiendaQuery } from '@/lib/tienda-db';
 import { mysqlQuery } from '@/lib/mysql';
-import { cargarKits, resolverMaestro } from '@/lib/kits';
+import { cargarKits, familiaDetallada, resolverMaestro } from '@/lib/kits';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -91,26 +91,53 @@ export async function GET(request: Request) {
         const truncado = candidatos.length > MAX_FILAS;
         candidatos = candidatos.slice(0, MAX_FILAS);
 
-        // Nombre, depto, precio y costo del MySQL de tienda (solo activos)
-        const info = new Map<number, Row>();
-        if (candidatos.length > 0) {
-            const marcas = candidatos.map(() => '?').join(',');
+        // Familia recursiva de cada candidato: para mostrar QUÉ variantes
+        // incluye, con su nivel en la cadena (variante de variante)
+        const familias = new Map<number, Map<number, { factor: number; nivel: number }>>();
+        const codigosFicha = new Set<number>();
+        for (const c of candidatos) {
+            const familia = familiaDetallada(c.codigo, kits);
+            familias.set(c.codigo, familia);
+            for (const codigo of familia.keys()) codigosFicha.add(codigo);
+        }
+
+        // Nombre, depto, precio y costo del MySQL de tienda (maestros y variantes)
+        const fichas = new Map<number, Row>();
+        if (codigosFicha.size > 0) {
+            const lista = [...codigosFicha];
+            const marcas = lista.map(() => '?').join(',');
             const articulos = (await tiendaQuery(idTienda, `
                 SELECT A.CodigoInterno, A.CodigoBarras, A.Descripcion, A.MedidaVenta,
                        A.Precio, A.UltimoCosto, A.Status, D.Depto
                 FROM tblArticulos A
                 LEFT JOIN tblDeptos D ON A.IdDepto = D.IdDepto
                 WHERE A.CodigoInterno IN (${marcas})
-            `, candidatos.map(c => c.codigo))) as Row[];
+            `, lista)) as Row[];
             for (const a of articulos ?? []) {
-                if (num(a.Status) === 0) info.set(num(a.CodigoInterno), a);
+                fichas.set(num(a.CodigoInterno), a);
             }
         }
 
         const items = candidatos
-            .filter(c => info.has(c.codigo))
+            // El maestro se lista solo si es un artículo activo de la tienda
+            .filter(c => {
+                const ficha = fichas.get(c.codigo);
+                return Boolean(ficha) && num(ficha!.Status) === 0;
+            })
             .map(c => {
-                const a = info.get(c.codigo)!;
+                const a = fichas.get(c.codigo)!;
+                const variantesDetalle = [...(familias.get(c.codigo) ?? new Map<number, { factor: number; nivel: number }>()).entries()]
+                    .filter(([codigo]) => codigo !== c.codigo)
+                    .map(([codigo, v]) => {
+                        const ficha = fichas.get(codigo);
+                        return {
+                            codigoInterno: codigo,
+                            codigoBarras: String(ficha?.CodigoBarras ?? '').trim(),
+                            descripcion: String(ficha?.Descripcion ?? `Código ${codigo}`).trim(),
+                            nivel: v.nivel,
+                        };
+                    })
+                    .sort((x, y) => x.nivel - y.nivel || x.descripcion.localeCompare(y.descripcion));
                 const precio = num(a.Precio);
                 const margen = Math.max(0, precio - num(a.UltimoCosto));
                 const ventaDiaria = c.pvd * precio;
@@ -123,7 +150,8 @@ export async function GET(request: Request) {
                     medidaVenta: String(a.MedidaVenta ?? '').trim(),
                     stock: c.exi,
                     pvd: c.pvd,
-                    variantes: c.variantes,
+                    variantes: variantesDetalle.length,
+                    variantesDetalle,
                     precio,
                     diasQuiebre: diasQuiebrePorCodigo.get(c.codigo) ?? 0,
                     ventaDiaria,
