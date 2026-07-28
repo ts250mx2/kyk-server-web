@@ -48,6 +48,13 @@ const fechaCorta = (v: string) => {
     return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString("es-MX", { day: "2-digit", month: "short" })
 }
 
+const fechaDia = (v: string) => {
+    const d = new Date(`${v}T00:00:00`)
+    return Number.isNaN(d.getTime())
+        ? v
+        : d.toLocaleDateString("es-MX", { weekday: "short", day: "2-digit", month: "short" })
+}
+
 // Consulta rápida de existencia por artículo: pensada para teclear o ESCANEAR
 // un código de barras (lector de teclado + Enter). Usa la API de existencia
 // puntual (corte nocturno + movimientos del día) y el histórico diario central.
@@ -60,6 +67,8 @@ export default function ExistenciasPage() {
     const [historico, setHistorico] = useState<PuntoHistorico[]>([])
     const [cargandoHist, setCargandoHist] = useState(false)
     const [diasHist, setDiasHist] = useState(90)
+    // Día bajo el cursor en la gráfica, para la lectura de fecha + existencia
+    const [puntoActivo, setPuntoActivo] = useState<PuntoHistorico | null>(null)
     const [error, setError] = useState("")
 
     const entradaRef = useRef<HTMLInputElement>(null)
@@ -85,6 +94,7 @@ export default function ExistenciasPage() {
         setResultados([])
         setExistencia(null)
         setHistorico([])
+        setPuntoActivo(null)
         setError("")
         setCargandoExi(true)
         cargarHistorico(item.codigoInterno, diasHist)
@@ -312,31 +322,73 @@ export default function ExistenciasPage() {
                             </p>
                         </div>
                     ) : (
-                        <>
-                            <div className="flex items-end gap-px h-28">
+                        <div onMouseLeave={() => setPuntoActivo(null)}>
+                            {/* Lectura del día bajo el cursor (altura fija para no brincar) */}
+                            <div className="h-6 mb-1 flex items-center justify-between gap-2">
+                                {puntoActivo ? (
+                                    <p className="text-[13px] font-black">
+                                        <span className="text-slate-200 capitalize">{fechaDia(puntoActivo.fecha)}</span>
+                                        <span className={cn(
+                                            "ml-2",
+                                            puntoActivo.exi <= 0 ? "text-rose-300" : "text-emerald-300"
+                                        )}>
+                                            {fmtDec(puntoActivo.exi)} {existencia.articulo.medidaVenta}
+                                        </span>
+                                        {puntoActivo.exi <= 0 && puntoActivo.pvd > 0 && (
+                                            <span className="ml-2 text-[10px] font-black text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-md px-1.5 py-0.5 uppercase">
+                                                Quiebre
+                                            </span>
+                                        )}
+                                    </p>
+                                ) : (
+                                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+                                        Pasa el cursor por las barras para ver cada día
+                                    </p>
+                                )}
+                                <p className="text-[10px] font-bold text-slate-600 whitespace-nowrap">
+                                    Máx: {fmtDec(maxExi)} {existencia.articulo.medidaVenta}
+                                </p>
+                            </div>
+
+                            <div className="flex items-end gap-px h-36 border-b border-white/10">
                                 {historico.map(h => (
                                     <div
                                         key={h.fecha}
-                                        className="flex-1 flex items-end h-full min-w-0"
-                                        title={`${fechaCorta(h.fecha)} — ${fmtDec(h.exi)} de existencia${h.exi <= 0 && h.pvd > 0 ? " (QUIEBRE)" : ""}`}
+                                        className="flex-1 flex items-end h-full min-w-0 cursor-crosshair"
+                                        onMouseEnter={() => setPuntoActivo(h)}
+                                        title={`${fechaDia(h.fecha)} — ${fmtDec(h.exi)}${h.exi <= 0 && h.pvd > 0 ? " (QUIEBRE)" : ""}`}
                                     >
                                         <div
                                             className={cn(
-                                                "w-full rounded-t-sm",
+                                                "w-full rounded-t-sm transition-colors",
                                                 h.exi <= 0
-                                                    ? "bg-rose-400/80"
-                                                    : "bg-emerald-400/60 hover:bg-emerald-300/80"
+                                                    ? (puntoActivo?.fecha === h.fecha ? "bg-rose-300" : "bg-rose-400/80")
+                                                    : (puntoActivo?.fecha === h.fecha ? "bg-emerald-300" : "bg-emerald-400/60")
                                             )}
                                             style={{ height: h.exi <= 0 ? "4px" : `${Math.max((h.exi / maxExi) * 100, 3)}%` }}
                                         />
                                     </div>
                                 ))}
                             </div>
-                            <div className="flex justify-between mt-2">
-                                <span className="text-[10px] font-bold text-slate-600">{fechaCorta(historico[0].fecha)}</span>
-                                <span className="text-[10px] font-bold text-slate-600">{fechaCorta(historico[historico.length - 1].fecha)}</span>
+
+                            {/* Eje de fechas: una etiqueta cada tantos días */}
+                            <div className="flex gap-px mt-1.5">
+                                {historico.map((h, i) => {
+                                    const paso = Math.max(1, Math.ceil(historico.length / 9))
+                                    const esUltimo = i === historico.length - 1
+                                    const esTick = (i % paso === 0 && historico.length - 1 - i >= paso / 2) || esUltimo
+                                    return (
+                                        <div key={h.fecha} className="flex-1 min-w-0 text-center overflow-visible">
+                                            {esTick && (
+                                                <span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">
+                                                    {fechaCorta(h.fecha)}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )
+                                })}
                             </div>
-                        </>
+                        </div>
                     )}
                 </div>
             )}
