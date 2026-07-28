@@ -16,9 +16,11 @@ const MAX_FILAS = 1000;
 
 // Quiebres y sobre-inventario desde el corte nocturno consolidado en el MySQL
 // central (tblInventariosCostosActual / tblInventariosCostos, pobladas por
-// KYKInvServices con IdTienda). Solo se usan Exi, PVD y Costo del central —
-// las columnas Entradas/Salidas llegan volteadas por un bug de transmisión
-// del servicio y no se tocan aquí. Nombres y precios salen del MySQL de tienda.
+// KYKInvServices con IdTienda). Del central solo se usan Exi y PVD — las
+// columnas Entradas/Salidas llegan volteadas por un bug de transmisión del
+// servicio y no se tocan aquí. Nombres, precios y el COSTO salen del MySQL de
+// tienda: el costo autorizado es tblArticulos.UltimoCosto (el Costo del
+// central solo se usa como proxy para ordenar antes del recorte de filas).
 //   - quiebres: agotados con demanda (Exi<=0, PVD>0) hoy o con días en quiebre
 //     en el rango; venta perdida estimada = días en quiebre × PVD × Precio.
 //   - exceso: sobre-inventario (cobertura Exi/PVD >= umbral) e inventario
@@ -106,7 +108,7 @@ export async function GET(request: Request) {
         if (candidatos.length > 0) {
             const marcas = candidatos.map(() => '?').join(',');
             const articulos = (await tiendaQuery(idTienda, `
-                SELECT CodigoInterno, CodigoBarras, Descripcion, MedidaVenta, Precio, Status
+                SELECT CodigoInterno, CodigoBarras, Descripcion, MedidaVenta, Precio, UltimoCosto, Status
                 FROM tblArticulos WHERE CodigoInterno IN (${marcas})
             `, candidatos.map(c => c.codigo))) as Row[];
             for (const a of articulos ?? []) {
@@ -154,6 +156,7 @@ export async function GET(request: Request) {
             .filter(c => info.has(c.codigo))
             .map(c => {
                 const a = info.get(c.codigo)!;
+                const costo = num(a.UltimoCosto);
                 return {
                     codigoInterno: c.codigo,
                     codigoBarras: String(a.CodigoBarras ?? '').trim(),
@@ -162,11 +165,12 @@ export async function GET(request: Request) {
                     exi: c.exi,
                     pvd: c.pvd,
                     cobertura: c.pvd > 0 ? c.exi / c.pvd : null,
-                    costo: c.costo,
-                    valorInventario: c.exi * c.costo,
+                    costo,
+                    valorInventario: c.exi * costo,
                     sinVenta: c.pvd <= 0,
                 };
-            });
+            })
+            .sort((a, b) => b.valorInventario - a.valorInventario);
 
         const sinVenta = filas.filter(f => f.sinVenta);
         return NextResponse.json({

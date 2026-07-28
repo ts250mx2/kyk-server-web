@@ -9,6 +9,41 @@ export const maxDuration = 300;
 
 const TIMEOUT_INV_MS = 240_000;
 
+// Candado anti-concurrencia: el servicio Java recalcula en tablas buffer POR
+// PROVEEDOR, así que dos consultas simultáneas del mismo proveedor en la misma
+// tienda se corrompen entre sí (herencia de la página PHP). Aquí las consultas
+// idénticas (mismos días) comparten el mismo resultado en vuelo, y las del
+// mismo proveedor con otros días se encolan una tras otra.
+const enCurso = new Map<string, Promise<Record<string, unknown>>>();
+const colasPorProveedor = new Map<string, Promise<unknown>>();
+
+function consultarSerializado(idTienda: number, idProveedor: number, diasPedido: number) {
+    const claveExacta = `${idTienda}:${idProveedor}:${diasPedido}`;
+    const compartida = enCurso.get(claveExacta);
+    if (compartida) return compartida;
+
+    const clavePareja = `${idTienda}:${idProveedor}`;
+    const anterior = colasPorProveedor.get(clavePareja) ?? Promise.resolve();
+    const propia = anterior
+        .catch(() => { /* una falla previa no bloquea la cola */ })
+        .then(() => consultarInventariosWs(idTienda, {
+            method: 'inv',
+            IdTienda: idTienda,
+            IdProveedor: idProveedor,
+            DiasPedido: diasPedido,
+        }, TIMEOUT_INV_MS));
+
+    colasPorProveedor.set(clavePareja, propia);
+    enCurso.set(claveExacta, propia);
+    propia
+        .finally(() => {
+            if (enCurso.get(claveExacta) === propia) enCurso.delete(claveExacta);
+            if (colasPorProveedor.get(clavePareja) === propia) colasPorProveedor.delete(clavePareja);
+        })
+        .catch(() => { /* el error lo maneja quien espera la promesa */ });
+    return propia;
+}
+
 // Inventario perpetuo del proveedor para la tienda de la sesión, vía el servicio
 // Java de la tienda (method=inv). La tienda NO es elegible: siempre la del login.
 export async function GET(request: Request) {
@@ -28,12 +63,7 @@ export async function GET(request: Request) {
     }
 
     try {
-        const json = await consultarInventariosWs(session.idTienda, {
-            method: 'inv',
-            IdTienda: session.idTienda,
-            IdProveedor: idProveedor,
-            DiasPedido: diasPedido,
-        }, TIMEOUT_INV_MS);
+        const json = await consultarSerializado(session.idTienda, idProveedor, diasPedido);
 
         const filas = Array.isArray(json.Articulos) ? json.Articulos : [];
         const articulos = filas.map((r: Record<string, unknown>) => ({

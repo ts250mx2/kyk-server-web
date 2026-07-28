@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { RefreshCw, Loader2, AlertTriangle, Clock, Megaphone } from "lucide-react"
+import { RefreshCw, Loader2, AlertTriangle, Clock, Megaphone, PackageX } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt, fmtHora, fmtFechaLarga } from "@/lib/format"
 
@@ -142,6 +142,24 @@ export default function PrincipalPage() {
         return () => { activo = false }
     }, [])
 
+    // Aviso de quiebres de inventario con demanda (del corte nocturno central)
+    const [quiebres, setQuiebres] = useState<{ articulos: number; perdidaDiaria: number } | null>(null)
+    useEffect(() => {
+        let activo = true
+        fetch("/api/inventarios/quiebres?tipo=quiebres&dias=7")
+            .then(r => r.json())
+            .then(d => {
+                if (activo && (d?.resumen?.enQuiebreHoy ?? 0) > 0) {
+                    setQuiebres({
+                        articulos: d.resumen.enQuiebreHoy,
+                        perdidaDiaria: d.resumen.ventaPerdidaDiaria ?? 0,
+                    })
+                }
+            })
+            .catch(() => { /* sin aviso si el central no responde */ })
+        return () => { activo = false }
+    }, [])
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center py-32 gap-4">
@@ -185,6 +203,20 @@ export default function PrincipalPage() {
                     <Megaphone className="h-5 w-5 text-rose-300 animate-pulse shrink-0" />
                     <span className="text-[12px] font-black text-rose-300 uppercase tracking-widest">
                         {fmtInt(urgentes)} comunicado{urgentes > 1 ? "s" : ""} urgente{urgentes > 1 ? "s" : ""} sin confirmar — clic para verlo{urgentes > 1 ? "s" : ""}
+                    </span>
+                </Link>
+            )}
+
+            {/* Quiebres de inventario con demanda */}
+            {quiebres && (
+                <Link
+                    href="/dashboard/inventarios/quiebres"
+                    className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-5 py-3.5 hover:bg-amber-500/15 transition-all"
+                >
+                    <PackageX className="h-5 w-5 text-amber-300 shrink-0" />
+                    <span className="text-[12px] font-black text-amber-300 uppercase tracking-widest">
+                        {fmtInt(quiebres.articulos)} artículo{quiebres.articulos > 1 ? "s" : ""} en quiebre con demanda
+                        — ~{fmtMoney(quiebres.perdidaDiaria)} de venta perdida al día · clic para ver
                     </span>
                 </Link>
             )}
