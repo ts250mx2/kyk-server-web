@@ -140,7 +140,8 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
 
 - **Inventarios → Quiebre de Stock** (`/dashboard/inventarios/quiebre-stock`): port de la
   pantalla Quiebres de Stock de kyk-dashboard, con los datos del corte central. Un quiebre es un
-  SKU con existencia ≤ umbral (segmentado: =0 / ≤1 / ≤2 / ≤5) **y** demanda reciente (PVD > 0).
+  SKU con **cobertura ≤ umbral en días** (existencia ÷ PVD, como el ExiPara del Java; segmentado
+  =0 agotados / ≤1 / ≤2 / ≤5 días) **y** demanda reciente (PVD > 0).
   Venta/día = PVD × precio; venta perdida = venta/día × horizonte (7/14/30 días); severidad por
   venta/día (≥$1,000 crítico, ≥$200 alto). KPIs (SKUs en quiebre del total con venta, venta y
   utilidad perdida proyectadas, unidades faltantes), top 10 por venta perdida con barras,

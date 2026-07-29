@@ -19,6 +19,7 @@ interface ItemQuiebre {
     depto: string
     medidaVenta: string
     stock: number
+    cobertura: number
     pvd: number
     variantes: number
     variantesDetalle: { codigoInterno: number; codigoBarras: string; descripcion: string; nivel: number }[]
@@ -49,17 +50,17 @@ interface Datos {
     }
 }
 
-type OrdenKey = "ventaPerdida" | "ventaDiaria" | "pvd" | "stock" | "diasQuiebre"
+type OrdenKey = "ventaPerdida" | "ventaDiaria" | "pvd" | "stock" | "cobertura" | "diasQuiebre"
 type Agrupar = "sku" | "depto"
 
 const lbl = "text-[10px] font-black text-slate-500 uppercase tracking-widest"
 const inputCls = "block w-full px-4 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-sm font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/25 focus:border-emerald-400/60 transition-all"
 
 const UMBRALES = [
-    { label: "= 0 (quiebre)", value: 0 },
-    { label: "≤ 1", value: 1 },
-    { label: "≤ 2", value: 2 },
-    { label: "≤ 5", value: 5 },
+    { label: "= 0 (agotado)", value: 0 },
+    { label: "≤ 1 día", value: 1 },
+    { label: "≤ 2 días", value: 2 },
+    { label: "≤ 5 días", value: 5 },
 ]
 const HORIZONTES = [7, 14, 30]
 
@@ -154,6 +155,7 @@ export default function QuiebreStockPage() {
                 case "ventaDiaria": return b.ventaDiaria - a.ventaDiaria
                 case "pvd": return b.pvd - a.pvd
                 case "stock": return a.stock - b.stock
+                case "cobertura": return a.cobertura - b.cobertura
                 case "diasQuiebre": return b.diasQuiebre - a.diasQuiebre
                 default: return b.ventaPerdida - a.ventaPerdida
             }
@@ -196,7 +198,7 @@ export default function QuiebreStockPage() {
     const contextoAnalisis: PageSummaryContext = useMemo(() => {
         const k = datos?.kpis
         return {
-            pageContext: `Quiebre de Stock: SKUs con existencia <= ${datos?.umbral ?? umbral} y venta reciente, con venta perdida proyectada a ${datos?.horizonte ?? horizonte} días. Más SKUs en quiebre y más venta perdida es PEOR.`,
+            pageContext: `Quiebre de Stock: SKUs con cobertura (existencia/venta diaria) <= ${datos?.umbral ?? umbral} días y venta reciente, con venta perdida proyectada a ${datos?.horizonte ?? horizonte} días. Más SKUs en quiebre y más venta perdida es PEOR.`,
             period: { fechaInicio: datos?.corteFecha || diasAtras(0), fechaFin: datos?.corteFecha || diasAtras(0) },
             scope: tienda || "Tienda de la sesión",
             kpis: {
@@ -228,7 +230,7 @@ export default function QuiebreStockPage() {
             const nombreTienda = tienda || await obtenerTiendaSesion()
             const base = {
                 titulo: "QUIEBRE DE STOCK",
-                subtitulo: `Stock ≤ ${datos.umbral} · Proyección ${datos.horizonte} días · Corte ${datos.corteFecha} · ${fmtInt(visibles.length)} SKUs`,
+                subtitulo: `Cobertura ≤ ${datos.umbral} días · Proyección ${datos.horizonte} días · Corte ${datos.corteFecha} · ${fmtInt(visibles.length)} SKUs`,
                 tienda: nombreTienda,
                 columnas: [
                     { header: "Código" },
@@ -236,6 +238,7 @@ export default function QuiebreStockPage() {
                     { header: "Depto" },
                     { header: "Severidad", align: "center" as const },
                     { header: "Stock", align: "right" as const },
+                    { header: "Cobertura (días)", align: "right" as const },
                     { header: "Días Quiebre 30d", align: "right" as const },
                     { header: "PVD", align: "right" as const },
                     { header: "Venta/Día", align: "right" as const },
@@ -249,16 +252,16 @@ export default function QuiebreStockPage() {
                     ...base, orientacion: "landscape",
                     filas: visibles.map(i => [
                         i.codigoBarras, i.descripcion, i.depto,
-                        SEVERIDAD[i.severidad].label, fmtDec(i.stock), String(i.diasQuiebre),
+                        SEVERIDAD[i.severidad].label, fmtDec(i.stock), fmtDec(i.cobertura), String(i.diasQuiebre),
                         fmtDec(i.pvd), fmtMoney(i.ventaDiaria), fmtMoney(i.ventaPerdida), fmtMoney(i.utilidadPerdida),
                     ]),
                 })
             } else {
                 exportarExcel({
-                    ...base, hoja: "Quiebre de Stock", columnasMoneda: [7, 8, 9],
+                    ...base, hoja: "Quiebre de Stock", columnasMoneda: [8, 9, 10],
                     filas: visibles.map(i => [
                         i.codigoBarras, i.descripcion, i.depto,
-                        SEVERIDAD[i.severidad].label, i.stock, i.diasQuiebre,
+                        SEVERIDAD[i.severidad].label, i.stock, i.cobertura, i.diasQuiebre,
                         i.pvd, i.ventaDiaria, i.ventaPerdida, i.utilidadPerdida,
                     ]),
                 })
@@ -275,16 +278,17 @@ export default function QuiebreStockPage() {
         const nombreTienda = tienda || await obtenerTiendaSesion()
         exportarExcel({
             titulo: "QUIEBRE DE STOCK POR DEPARTAMENTO",
-            subtitulo: `${deptoDetalle} · Stock ≤ ${datos?.umbral ?? umbral} · Proyección ${datos?.horizonte ?? horizonte} días · ${fmtInt(articulosDepto.length)} SKUs`,
+            subtitulo: `${deptoDetalle} · Cobertura ≤ ${datos?.umbral ?? umbral} días · Proyección ${datos?.horizonte ?? horizonte} días · ${fmtInt(articulosDepto.length)} SKUs`,
             tienda: nombreTienda,
             hoja: "Departamento",
             nombreArchivo: `quiebre_stock_depto_${sufijoArchivo()}`,
-            columnasMoneda: [5, 6, 7],
+            columnasMoneda: [6, 7, 8],
             columnas: [
                 { header: "Código" },
                 { header: "Producto" },
                 { header: "Severidad", align: "center" },
                 { header: "Stock", align: "right" },
+                { header: "Cobertura (días)", align: "right" },
                 { header: "Días Quiebre 30d", align: "right" },
                 { header: "Venta/Día", align: "right" },
                 { header: "Venta Perdida", align: "right" },
@@ -292,7 +296,7 @@ export default function QuiebreStockPage() {
             ],
             filas: articulosDepto.map(i => [
                 i.codigoBarras, i.descripcion, SEVERIDAD[i.severidad].label,
-                i.stock, i.diasQuiebre, i.ventaDiaria, i.ventaPerdida, i.utilidadPerdida,
+                i.stock, i.cobertura, i.diasQuiebre, i.ventaDiaria, i.ventaPerdida, i.utilidadPerdida,
             ]),
         })
     }
@@ -354,7 +358,7 @@ export default function QuiebreStockPage() {
                     <div>
                         <span
                             className={lbl}
-                            title="Existencia máxima para considerar un artículo en quiebre: = 0 solo agotados; ≤ N incluye también los que están a punto de agotarse"
+                            title="Cobertura máxima (existencia ÷ venta diaria) para considerar un artículo en quiebre: = 0 solo agotados; ≤ N días incluye a los que quebrarán en esos días"
                         >
                             Umbral de stock
                         </span>
@@ -398,12 +402,12 @@ export default function QuiebreStockPage() {
                     </div>
                 </div>
                 <p className="text-[10px] font-bold text-slate-600 leading-relaxed">
-                    El <span className="text-slate-400">umbral</span> define qué se considera quiebre:
+                    El <span className="text-slate-400">umbral</span> se mide en <span className="text-slate-400">días de cobertura</span> (existencia ÷ venta diaria):
                     {" "}<span className="text-rose-300">= 0</span> lista solo artículos totalmente agotados;
-                    {" "}<span className="text-rose-300">≤ 1 / ≤ 2 / ≤ 5</span> incluye también los que están a punto
-                    de agotarse (existencia igual o menor al umbral). Solo cuentan artículos con venta reciente.
-                    El <span className="text-slate-400">horizonte</span> proyecta la venta que se perdería en esos
-                    días si no se resurte.
+                    {" "}<span className="text-rose-300">≤ 1 / ≤ 2 / ≤ 5 días</span> incluye a los que quebrarán en esos días
+                    según su rotación real — un artículo que vende 20 al día con 60 piezas tiene solo 3 días de cobertura.
+                    Solo cuentan artículos con venta reciente. El <span className="text-slate-400">horizonte</span> proyecta
+                    la venta que se perdería en esos días si no se resurte.
                 </p>
                 {datos && (
                     <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/[0.06]">
@@ -412,7 +416,7 @@ export default function QuiebreStockPage() {
                             <Calendar className="h-3 w-3" /> Corte del {datos.corteFecha} · Proyección {datos.horizonte}d
                         </span>
                         <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/25 text-[10px] font-black text-rose-300 uppercase tracking-wider">
-                            <PackageX className="h-3 w-3" /> {datos.umbral === 0 ? "Stock = 0" : `Stock ≤ ${datos.umbral}`}
+                            <PackageX className="h-3 w-3" /> {datos.umbral === 0 ? "Agotados (stock = 0)" : `Cobertura ≤ ${datos.umbral} día${datos.umbral > 1 ? "s" : ""}`}
                         </span>
                     </div>
                 )}
@@ -583,6 +587,7 @@ export default function QuiebreStockPage() {
                                                     <th className={cn(lbl, "px-4 py-2.5 text-left")}>Producto</th>
                                                     <th className={cn(lbl, "px-4 py-2.5 text-center")}>Severidad</th>
                                                     <EncOrden label="Stock" activo={orden === "stock"} onClick={() => setOrden("stock")} />
+                                                    <EncOrden label="Cobertura" activo={orden === "cobertura"} onClick={() => setOrden("cobertura")} />
                                                     <EncOrden label="Días Quiebre 30d" activo={orden === "diasQuiebre"} onClick={() => setOrden("diasQuiebre")} />
                                                     <EncOrden label="PVD" activo={orden === "pvd"} onClick={() => setOrden("pvd")} />
                                                     <EncOrden label="Venta/Día" activo={orden === "ventaDiaria"} onClick={() => setOrden("ventaDiaria")} />
@@ -629,6 +634,12 @@ export default function QuiebreStockPage() {
                                                                 it.stock <= 0 ? "text-rose-300" : "text-amber-300"
                                                             )}>
                                                                 {fmtDec(it.stock)}
+                                                            </td>
+                                                            <td className={cn(
+                                                                "px-4 py-2.5 text-[12px] font-black text-right whitespace-nowrap",
+                                                                it.cobertura <= 1 ? "text-rose-300" : it.cobertura <= 2 ? "text-amber-300" : "text-slate-300"
+                                                            )}>
+                                                                {fmtDec(it.cobertura)} d
                                                             </td>
                                                             <td className="px-4 py-2.5 text-[12px] font-black text-amber-300 text-right whitespace-nowrap">
                                                                 {it.diasQuiebre > 0 ? it.diasQuiebre : "—"}
@@ -724,6 +735,7 @@ export default function QuiebreStockPage() {
                                         <th className={cn(lbl, "px-4 py-2.5 text-left")}>Producto</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-center")}>Severidad</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-right")}>Stock</th>
+                                        <th className={cn(lbl, "px-4 py-2.5 text-right")}>Cobertura</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-right")}>Días Quiebre 30d</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-right")}>Venta/Día</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-right")}>Venta Perdida</th>
@@ -768,6 +780,12 @@ export default function QuiebreStockPage() {
                                                     it.stock <= 0 ? "text-rose-300" : "text-amber-300"
                                                 )}>
                                                     {fmtDec(it.stock)}
+                                                </td>
+                                                <td className={cn(
+                                                    "px-4 py-2.5 text-[12px] font-black text-right whitespace-nowrap",
+                                                    it.cobertura <= 1 ? "text-rose-300" : it.cobertura <= 2 ? "text-amber-300" : "text-slate-300"
+                                                )}>
+                                                    {fmtDec(it.cobertura)} d
                                                 </td>
                                                 <td className="px-4 py-2.5 text-[12px] font-black text-amber-300 text-right whitespace-nowrap">
                                                     {it.diasQuiebre > 0 ? it.diasQuiebre : "—"}

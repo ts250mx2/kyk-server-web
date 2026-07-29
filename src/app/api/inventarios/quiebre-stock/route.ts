@@ -17,8 +17,11 @@ const MAX_FILAS = 1500;
 const DIAS_HISTORICO = 30;
 
 // Quiebre de Stock — port de la pantalla de kyk-dashboard, con los datos del
-// corte nocturno central: un quiebre es un SKU con Exi <= umbral Y demanda
-// reciente (PVD > 0 en el corte; los SKUs muertos en cero no cuentan).
+// corte nocturno central. El umbral se mide en DÍAS DE COBERTURA (Exi/PVD,
+// como el ExiPara del servicio Java), no en unidades absolutas: un SKU entra
+// si su existencia alcanza para <= umbral días de venta (0 = ya agotado) y
+// tiene demanda reciente (PVD > 0; los SKUs muertos no cuentan). Así "≤ 5"
+// atrapa al que vende 20/día con 60 piezas y no al de baja rotación con 3.
 //   venta/día = PVD × Precio · venta perdida = venta/día × horizonte
 //   utilidad perdida = PVD × (Precio − UltimoCosto) × horizonte
 //   severidad por venta/día: >= $1,000 crítico, >= $200 alto, resto medio
@@ -79,10 +82,11 @@ export async function GET(request: Request) {
             consolidado.push({ codigo, exi: num(r.Exi), pvd: num(r.PVD) });
         }
 
-        // Denominador del KPI: SKUs maestros con demanda reciente
+        // Denominador del KPI: SKUs maestros con demanda reciente. El umbral
+        // es en días de cobertura: existencia ÷ venta diaria <= umbral
         const conVenta = consolidado.filter(c => c.pvd > 0);
         let candidatos = conVenta
-            .filter(c => c.exi <= umbral)
+            .filter(c => Math.max(c.exi, 0) / c.pvd <= umbral)
             .sort((a, b) => b.pvd - a.pvd);
         const truncado = candidatos.length > MAX_FILAS;
         candidatos = candidatos.slice(0, MAX_FILAS);
@@ -145,6 +149,7 @@ export async function GET(request: Request) {
                     depto: String(a.Depto ?? '').trim(),
                     medidaVenta: String(a.MedidaVenta ?? '').trim(),
                     stock: c.exi,
+                    cobertura: Math.max(c.exi, 0) / c.pvd,
                     pvd: c.pvd,
                     variantes: variantesDetalle.length,
                     variantesDetalle,
