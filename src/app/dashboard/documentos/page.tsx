@@ -44,13 +44,13 @@ interface Descarga { tienda: string; usuario: string; fecha: string }
 const lbl = "text-[10px] font-black text-slate-500 uppercase tracking-widest"
 const inputCls = "block w-full px-4 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-sm font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/25 focus:border-emerald-400/60 transition-all"
 
-const IconoArchivo = ({ nombre, mime }: { nombre: string; mime: string }) => {
+const IconoArchivo = ({ nombre, mime, clase = "h-5 w-5" }: { nombre: string; mime: string; clase?: string }) => {
     const ext = nombre.split(".").pop()?.toLowerCase() ?? ""
-    if (mime.includes("pdf") || ext === "pdf") return <FileText className="h-5 w-5 text-rose-400" />
-    if (mime.includes("sheet") || ["xlsx", "xls", "csv"].includes(ext)) return <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
-    if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return <ImageIcon className="h-5 w-5 text-cyan-400" />
-    if (["doc", "docx"].includes(ext)) return <FileText className="h-5 w-5 text-blue-400" />
-    return <FileIcon className="h-5 w-5 text-slate-400" />
+    if (mime.includes("pdf") || ext === "pdf") return <FileText className={cn(clase, "text-rose-400")} />
+    if (mime.includes("sheet") || ["xlsx", "xls", "csv"].includes(ext)) return <FileSpreadsheet className={cn(clase, "text-emerald-400")} />
+    if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return <ImageIcon className={cn(clase, "text-cyan-400")} />
+    if (["doc", "docx"].includes(ext)) return <FileText className={cn(clase, "text-blue-400")} />
+    return <FileIcon className={cn(clase, "text-slate-400")} />
 }
 
 export default function DocumentosPage() {
@@ -458,47 +458,47 @@ export default function DocumentosPage() {
                     </p>
                 </div>
             ) : (
-                <div className="bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl overflow-hidden divide-y divide-white/[0.04]">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                     {documentos.map(d => (
-                        <div key={d.idDocumento} className="px-5 py-3.5 flex items-center gap-4 hover:bg-white/[0.02] transition-colors">
-                            <div className="shrink-0 w-10 h-10 rounded-xl bg-white/[0.04] border border-white/10 flex items-center justify-center">
-                                <IconoArchivo nombre={d.nombreArchivo} mime={d.tipoMime} />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-[13px] font-black text-slate-100 truncate">{d.nombre}</p>
-                                <p className="text-[11px] font-bold text-slate-500 truncate">
-                                    {d.nombreArchivo} · {fmtTamano(d.tamano)} · {d.idCarpeta > 0 ? (rutaDe(d.idCarpeta) || d.carpeta) : d.carpeta}
-                                    {!d.todasTiendas ? " · Tiendas específicas" : ""}
-                                </p>
-                                <p className="text-[10px] font-bold text-slate-600">
-                                    {d.subidoPor} · {fmtFechaHora(d.fecha)}
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
+                        <div key={d.idDocumento} className="relative group">
+                            <a
+                                href={`/api/documentos/${d.idDocumento}/descargar`}
+                                className="h-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-emerald-400/40 transition-all"
+                                title={`${d.nombre}\n${d.nombreArchivo} · ${fmtTamano(d.tamano)}${d.todasTiendas ? "" : "\nSolo tiendas específicas"}\n${d.subidoPor} · ${fmtFechaHora(d.fecha)}\nClic para descargar`}
+                            >
+                                <IconoArchivo nombre={d.nombreArchivo} mime={d.tipoMime} clase="h-10 w-10" />
+                                <span className="text-[12px] font-black text-slate-200 w-full text-center leading-tight line-clamp-2 break-words">
+                                    {d.nombre}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-500">{fmtTamano(d.tamano)}</span>
+                            </a>
+                            {/* Acciones al pasar el cursor, como el borrado de carpetas */}
+                            <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                <a
+                                    href={`/api/documentos/${d.idDocumento}/descargar`}
+                                    className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/40 transition-all"
+                                    title="Descargar"
+                                >
+                                    <Download className="h-3.5 w-3.5" />
+                                </a>
                                 {rol === "oficina" && (
                                     <>
                                         <button
                                             onClick={() => verAuditoria(d)}
-                                            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white/[0.05] border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/30 transition-all text-[11px] font-black"
-                                            title="Ver quién lo ha descargado"
+                                            className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all"
+                                            title={`${fmtInt(d.descargas)} descargas — ver quién lo ha bajado`}
                                         >
-                                            <Eye className="h-4 w-4" /> {fmtInt(d.descargas)}
+                                            <Eye className="h-3.5 w-3.5" />
                                         </button>
                                         <button
                                             onClick={() => retirar(d)}
-                                            className="p-2 rounded-lg bg-white/[0.05] border border-white/10 text-slate-400 hover:text-rose-300 hover:border-rose-500/30 transition-all"
+                                            className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-rose-300 hover:border-rose-500/40 transition-all"
                                             title="Retirar documento"
                                         >
-                                            <Trash2 className="h-4 w-4" />
+                                            <Trash2 className="h-3.5 w-3.5" />
                                         </button>
                                     </>
                                 )}
-                                <a
-                                    href={`/api/documentos/${d.idDocumento}/descargar`}
-                                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
-                                >
-                                    <Download className="h-4 w-4" /> Descargar
-                                </a>
                             </div>
                         </div>
                     ))}

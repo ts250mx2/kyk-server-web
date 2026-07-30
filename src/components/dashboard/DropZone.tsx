@@ -28,10 +28,14 @@ export function DropZone({
 
     return (
         <div
-            onDragOver={e => { e.preventDefault(); setArrastrando(true) }}
-            onDragLeave={() => setArrastrando(false)}
+            // stopPropagation: las páginas que montan la zona también aceptan
+            // soltar en cualquier parte — sin esto el drop se procesaba DOS
+            // veces (zona + página) y el archivo se subía duplicado
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); setArrastrando(true) }}
+            onDragLeave={e => { e.stopPropagation(); setArrastrando(false) }}
             onDrop={e => {
                 e.preventDefault()
+                e.stopPropagation()
                 setArrastrando(false)
                 recibir(e.dataTransfer.files)
             }}
