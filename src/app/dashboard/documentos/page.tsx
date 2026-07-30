@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from "react"
 import {
     Loader2, AlertTriangle, X, Plus, Search, RefreshCw, Download,
     FolderOpen, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon,
-    Trash2, Eye, Upload, Folder, FolderPlus, ArrowLeft, ChevronRight, Check
+    Trash2, Eye, Upload, Folder, FolderPlus, ArrowLeft, ChevronRight, Check,
+    FileArchive, FileVideo, FileAudio, FileCode, Presentation, Info, FolderInput
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
 import { DropZone } from "@/components/dashboard/DropZone"
+import { MenuContextual, PropiedadesModal, type OpcionMenu } from "@/components/dashboard/DocumentosMenus"
 
 interface Documento {
     idDocumento: number
@@ -44,12 +46,18 @@ interface Descarga { tienda: string; usuario: string; fecha: string }
 const lbl = "text-[10px] font-black text-slate-500 uppercase tracking-widest"
 const inputCls = "block w-full px-4 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-sm font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/25 focus:border-emerald-400/60 transition-all"
 
+// Icono por tipo de archivo, como los iconos del explorador de Windows
 const IconoArchivo = ({ nombre, mime, clase = "h-5 w-5" }: { nombre: string; mime: string; clase?: string }) => {
     const ext = nombre.split(".").pop()?.toLowerCase() ?? ""
     if (mime.includes("pdf") || ext === "pdf") return <FileText className={cn(clase, "text-rose-400")} />
-    if (mime.includes("sheet") || ["xlsx", "xls", "csv"].includes(ext)) return <FileSpreadsheet className={cn(clase, "text-emerald-400")} />
-    if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return <ImageIcon className={cn(clase, "text-cyan-400")} />
-    if (["doc", "docx"].includes(ext)) return <FileText className={cn(clase, "text-blue-400")} />
+    if (mime.includes("sheet") || ["xlsx", "xls", "xlsm", "csv"].includes(ext)) return <FileSpreadsheet className={cn(clase, "text-emerald-400")} />
+    if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext)) return <ImageIcon className={cn(clase, "text-cyan-400")} />
+    if (["doc", "docx", "rtf", "odt"].includes(ext)) return <FileText className={cn(clase, "text-blue-400")} />
+    if (["ppt", "pptx", "odp"].includes(ext)) return <Presentation className={cn(clase, "text-orange-400")} />
+    if (["zip", "rar", "7z", "gz", "tar"].includes(ext)) return <FileArchive className={cn(clase, "text-amber-400")} />
+    if (mime.startsWith("video/") || ["mp4", "avi", "mkv", "mov", "wmv"].includes(ext)) return <FileVideo className={cn(clase, "text-violet-400")} />
+    if (mime.startsWith("audio/") || ["mp3", "wav", "ogg", "wma"].includes(ext)) return <FileAudio className={cn(clase, "text-pink-400")} />
+    if (["xml", "json", "html", "js", "ts", "sql", "txt", "log"].includes(ext)) return <FileCode className={cn(clase, "text-teal-400")} />
     return <FileIcon className={cn(clase, "text-slate-400")} />
 }
 
@@ -65,6 +73,13 @@ export default function DocumentosPage() {
     // Nueva carpeta en el explorador (oficina)
     const [creandoCarpeta, setCreandoCarpeta] = useState(false)
     const [nombreCarpeta, setNombreCarpeta] = useState("")
+
+    // Explorador estilo Windows: menú contextual, propiedades, mover y arrastres
+    const [menu, setMenu] = useState<{ x: number; y: number; tipo: "area" | "carpeta" | "doc"; doc?: Documento; carpeta?: Carpeta } | null>(null)
+    const [propiedades, setPropiedades] = useState<Documento | null>(null)
+    const [moverDoc, setMoverDoc] = useState<Documento | null>(null)
+    const [arrastrandoPanel, setArrastrandoPanel] = useState(false)
+    const [carpetaHover, setCarpetaHover] = useState(0)
 
     // Modal subir (oficina)
     const [subirAbierto, setSubirAbierto] = useState(false)
@@ -144,6 +159,23 @@ export default function DocumentosPage() {
             cargar(carpetaSel === c.idCarpeta ? 0 : carpetaSel, busqueda.trim())
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "No fue posible eliminar la carpeta")
+        }
+    }
+
+    // Mover documento a otra carpeta (arrastrándolo o desde el menú contextual)
+    const mover = async (idDocumento: number, idCarpeta: number) => {
+        setError("")
+        try {
+            const res = await fetch(`/api/documentos/${idDocumento}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ idCarpeta }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || "No fue posible mover el documento")
+            cargar(carpetaSel, busqueda.trim())
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "No fue posible mover el documento")
         }
     }
 
@@ -309,7 +341,41 @@ export default function DocumentosPage() {
                 </div>
             </div>
 
-            {/* Explorador de carpetas, al estilo del explorador de Windows */}
+            {error && (
+                <div className="flex items-center gap-2 text-rose-300 text-[11px] font-black bg-rose-500/10 p-3 rounded-xl border border-rose-500/25 uppercase tracking-wider">
+                    <AlertTriangle className="h-4 w-4" /> {error}
+                </div>
+            )}
+
+            {/* Panel único del explorador (carpetas + archivos) al estilo Windows:
+                aquí mismo se sueltan archivos para subirlos, el clic derecho abre
+                el menú contextual y los archivos se arrastran a las carpetas */}
+            <div
+                className={cn(
+                    "bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl p-4 min-h-[420px] space-y-4 transition-all",
+                    arrastrandoPanel && "border-emerald-400/60 bg-emerald-500/[0.04]"
+                )}
+                onDragOver={e => {
+                    if (rol === "oficina" && e.dataTransfer.types.includes("Files")) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setArrastrandoPanel(true)
+                    }
+                }}
+                onDragLeave={e => { if (e.currentTarget === e.target) setArrastrandoPanel(false) }}
+                onDrop={e => {
+                    if (rol === "oficina" && e.dataTransfer.types.includes("Files")) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setArrastrandoPanel(false)
+                        soltarEnPagina(e.dataTransfer.files)
+                    }
+                }}
+                onContextMenu={e => {
+                    e.preventDefault()
+                    setMenu({ x: e.clientX, y: e.clientY, tipo: "area" })
+                }}
+            >
             {carpetaSel > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
                     <button
@@ -321,7 +387,19 @@ export default function DocumentosPage() {
                     </button>
                     <button
                         onClick={() => cambiarCarpeta(0)}
+                        onDragOver={e => {
+                            if (e.dataTransfer.types.includes("application/x-documento")) { e.preventDefault(); e.stopPropagation() }
+                        }}
+                        onDrop={e => {
+                            if (e.dataTransfer.types.includes("application/x-documento")) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                const id = Number(e.dataTransfer.getData("application/x-documento"))
+                                if (id > 0) mover(id, 0)
+                            }
+                        }}
                         className="text-[12px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
+                        title="Ir a la raíz — suelta aquí un archivo para moverlo a Sin carpeta"
                     >
                         Documentos
                     </button>
@@ -335,7 +413,19 @@ export default function DocumentosPage() {
                             ) : (
                                 <button
                                     onClick={() => cambiarCarpeta(c.idCarpeta)}
+                                    onDragOver={e => {
+                                        if (e.dataTransfer.types.includes("application/x-documento")) { e.preventDefault(); e.stopPropagation() }
+                                    }}
+                                    onDrop={e => {
+                                        if (e.dataTransfer.types.includes("application/x-documento")) {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            const id = Number(e.dataTransfer.getData("application/x-documento"))
+                                            if (id > 0) mover(id, c.idCarpeta)
+                                        }
+                                    }}
                                     className="text-[12px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
+                                    title={`Ir a ${c.nombre} — suelta aquí un archivo para moverlo`}
                                 >
                                     {c.nombre}
                                 </button>
@@ -345,15 +435,54 @@ export default function DocumentosPage() {
                 </div>
             )}
 
-            {(subcarpetas.length > 0 || rol === "oficina") && (
+            {rol === "oficina" && (
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+                    Arrastra archivos a esta área para subirlos a {carpetaSel > 0 ? `"${rutaDe(carpetaSel)}"` : '"Sin carpeta"'} ·
+                    clic derecho para opciones · arrastra un archivo a una carpeta para moverlo
+                </p>
+            )}
+
+            {loading ? (
+                <div className="flex items-center justify-center py-28">
+                    <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
+                </div>
+            ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                     {subcarpetas.map(c => {
                         const nSub = carpetas.filter(x => x.idPadre === c.idCarpeta).length
                         return (
-                            <div key={c.idCarpeta} className="relative group">
+                            <div
+                                key={c.idCarpeta}
+                                className="relative group"
+                                onContextMenu={e => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setMenu({ x: e.clientX, y: e.clientY, tipo: "carpeta", carpeta: c })
+                                }}
+                                onDragOver={e => {
+                                    if (rol === "oficina" && e.dataTransfer.types.includes("application/x-documento")) {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        setCarpetaHover(c.idCarpeta)
+                                    }
+                                }}
+                                onDragLeave={() => setCarpetaHover(h => (h === c.idCarpeta ? 0 : h))}
+                                onDrop={e => {
+                                    if (rol === "oficina" && e.dataTransfer.types.includes("application/x-documento")) {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        setCarpetaHover(0)
+                                        const id = Number(e.dataTransfer.getData("application/x-documento"))
+                                        if (id > 0) mover(id, c.idCarpeta)
+                                    }
+                                }}
+                            >
                                 <button
                                     onClick={() => cambiarCarpeta(c.idCarpeta)}
-                                    className="w-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-amber-400/40 transition-all"
+                                    className={cn(
+                                        "w-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-amber-400/40 transition-all",
+                                        carpetaHover === c.idCarpeta && "border-emerald-400/70 bg-emerald-500/10 scale-[1.03]"
+                                    )}
                                     title={`Abrir la carpeta ${c.nombre}`}
                                 >
                                     <Folder className="h-10 w-10 text-amber-400 fill-amber-400/25" />
@@ -419,48 +548,23 @@ export default function DocumentosPage() {
                             <span className="text-[10px] font-black uppercase tracking-widest">Nueva Carpeta</span>
                         </button>
                     ))}
-                </div>
-            )}
 
-            {/* Área de subida siempre visible (oficina): suelta o elige archivos
-                y se abren en el modal con la carpeta actual precargada */}
-            {rol === "oficina" && (
-                <DropZone
-                    multiple
-                    onFiles={fs => {
-                        if (fs.length === 0) return
-                        setArchivos(prev => [...prev, ...fs])
-                        if (fs.length === 1 && !nombre.trim()) setNombre(fs[0].name)
-                        abrirSubir()
-                    }}
-                    mensaje={`Arrastra archivos aquí o haz clic para elegir — se subirán a ${carpetaSel > 0
-                        ? `"${rutaDe(carpetaSel)}"`
-                        : '"Sin carpeta" (puedes cambiarla al subir)'}`}
-                />
-            )}
-
-            {error && (
-                <div className="flex items-center gap-2 text-rose-300 text-[11px] font-black bg-rose-500/10 p-3 rounded-xl border border-rose-500/25 uppercase tracking-wider">
-                    <AlertTriangle className="h-4 w-4" /> {error}
-                </div>
-            )}
-
-            {/* Lista de documentos */}
-            {loading ? (
-                <div className="flex items-center justify-center py-32">
-                    <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
-                </div>
-            ) : documentos.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-32 gap-3 bg-white/[0.04] border border-white/10 rounded-2xl">
-                    <FolderOpen className="h-8 w-8 text-slate-700" />
-                    <p className="text-[12px] font-bold text-slate-600 uppercase tracking-widest">
-                        Sin documentos en esta carpeta
-                    </p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {/* Archivos en la misma cuadrícula, arrastrables a las carpetas */}
                     {documentos.map(d => (
-                        <div key={d.idDocumento} className="relative group">
+                        <div
+                            key={`doc-${d.idDocumento}`}
+                            className="relative group"
+                            draggable={rol === "oficina"}
+                            onDragStart={e => {
+                                e.dataTransfer.setData("application/x-documento", String(d.idDocumento))
+                                e.dataTransfer.effectAllowed = "move"
+                            }}
+                            onContextMenu={e => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setMenu({ x: e.clientX, y: e.clientY, tipo: "doc", doc: d })
+                            }}
+                        >
                             <a
                                 href={`/api/documentos/${d.idDocumento}/descargar`}
                                 className="h-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-emerald-400/40 transition-all"
@@ -504,6 +608,16 @@ export default function DocumentosPage() {
                     ))}
                 </div>
             )}
+
+            {!loading && rol !== "oficina" && subcarpetas.length === 0 && documentos.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <FolderOpen className="h-8 w-8 text-slate-700" />
+                    <p className="text-[12px] font-bold text-slate-600 uppercase tracking-widest">
+                        Carpeta vacía
+                    </p>
+                </div>
+            )}
+            </div>
 
             {/* Modal subir documento */}
             {subirAbierto && (
@@ -693,6 +807,102 @@ export default function DocumentosPage() {
                                 </div>
                             </>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Menú contextual (clic derecho), como el explorador de Windows */}
+            {menu && (
+                <MenuContextual
+                    x={menu.x}
+                    y={menu.y}
+                    onCerrar={() => setMenu(null)}
+                    opciones={((): OpcionMenu[] => {
+                        if (menu.tipo === "doc" && menu.doc) {
+                            const d = menu.doc
+                            return [
+                                { etiqueta: "Descargar", icono: <Download className="h-4 w-4" />, onClick: () => window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self") },
+                                { etiqueta: "Propiedades", icono: <Info className="h-4 w-4" />, onClick: () => setPropiedades(d) },
+                                ...(rol === "oficina" ? [
+                                    { etiqueta: "Mover a...", icono: <FolderInput className="h-4 w-4" />, onClick: () => setMoverDoc(d) },
+                                    { etiqueta: "Auditoría de descargas", icono: <Eye className="h-4 w-4" />, onClick: () => verAuditoria(d) },
+                                    { etiqueta: "Retirar", icono: <Trash2 className="h-4 w-4" />, peligro: true, separador: true, onClick: () => retirar(d) },
+                                ] : []),
+                            ]
+                        }
+                        if (menu.tipo === "carpeta" && menu.carpeta) {
+                            const c = menu.carpeta
+                            return [
+                                { etiqueta: "Abrir", icono: <FolderOpen className="h-4 w-4" />, onClick: () => cambiarCarpeta(c.idCarpeta) },
+                                ...(rol === "oficina" ? [
+                                    { etiqueta: "Eliminar", icono: <Trash2 className="h-4 w-4" />, peligro: true, separador: true, onClick: () => borrarCarpeta(c) },
+                                ] : []),
+                            ]
+                        }
+                        return [
+                            ...(rol === "oficina" ? [
+                                { etiqueta: "Nueva carpeta", icono: <FolderPlus className="h-4 w-4" />, onClick: () => setCreandoCarpeta(true) },
+                                { etiqueta: "Subir archivos...", icono: <Upload className="h-4 w-4" />, onClick: abrirSubir },
+                            ] : []),
+                            { etiqueta: "Actualizar", icono: <RefreshCw className="h-4 w-4" />, onClick: () => cargar(carpetaSel, busqueda.trim()) },
+                        ]
+                    })()}
+                />
+            )}
+
+            {/* Propiedades del documento */}
+            {propiedades && (
+                <PropiedadesModal
+                    doc={propiedades}
+                    ruta={propiedades.idCarpeta > 0 ? rutaDe(propiedades.idCarpeta) : ""}
+                    esOficina={rol === "oficina"}
+                    onClose={() => setPropiedades(null)}
+                />
+            )}
+
+            {/* Mover documento a otra carpeta */}
+            {moverDoc && (
+                <div
+                    className="fixed inset-0 z-[85] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setMoverDoc(null)}
+                >
+                    <div
+                        className="w-full max-w-md bg-[#0d1320] border border-white/10 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col max-h-[80vh]"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <h3 className="text-[15px] font-black text-white">Mover a...</h3>
+                                <p className="text-[12px] font-bold text-slate-400 mt-1 truncate">{moverDoc.nombre}</p>
+                            </div>
+                            <button
+                                onClick={() => setMoverDoc(null)}
+                                className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+                        <div className="overflow-auto flex-1 p-3 space-y-1">
+                            <button
+                                onClick={() => { mover(moverDoc.idDocumento, 0); setMoverDoc(null) }}
+                                disabled={moverDoc.idCarpeta === 0}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-left text-[13px] font-bold text-slate-200 hover:bg-white/[0.06] transition-colors disabled:opacity-40"
+                            >
+                                <FolderOpen className="h-4 w-4 text-slate-500" /> Sin carpeta
+                            </button>
+                            {[...carpetas]
+                                .sort((a, b) => rutaDe(a.idCarpeta).localeCompare(rutaDe(b.idCarpeta)))
+                                .map(c => (
+                                    <button
+                                        key={c.idCarpeta}
+                                        onClick={() => { mover(moverDoc.idDocumento, c.idCarpeta); setMoverDoc(null) }}
+                                        disabled={moverDoc.idCarpeta === c.idCarpeta}
+                                        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-left text-[13px] font-bold text-slate-200 hover:bg-white/[0.06] transition-colors disabled:opacity-40"
+                                    >
+                                        <Folder className="h-4 w-4 text-amber-400 fill-amber-400/25" /> {rutaDe(c.idCarpeta)}
+                                    </button>
+                                ))}
+                        </div>
                     </div>
                 </div>
             )}

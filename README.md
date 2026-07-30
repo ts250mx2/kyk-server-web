@@ -229,7 +229,14 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   Esc cancela — crea en el nivel abierto), botón de eliminar al pasar el cursor (solo carpetas
   vacías — el API rechaza con 409 si tiene documentos o subcarpetas) y breadcrumb multinivel
   "Documentos › Carpeta › Subcarpeta" navegable con botón de regreso al nivel anterior. El
-  combo de carpetas del modal de subida muestra la ruta completa ("Padre / Hija"). Para oficina hay una **zona de
+  combo de carpetas del modal de subida muestra la ruta completa ("Padre / Hija"). El panel es
+  **un solo lienzo estilo explorador**: carpetas y archivos (tiles con icono por tipo: PDF,
+  Excel, Word, PowerPoint, imagen, ZIP, video, audio, código) en la misma cuadrícula, soltar
+  archivos ahí mismo los sube a la carpeta abierta, **clic derecho** abre menú contextual
+  (archivo: descargar/propiedades/mover/auditoría/retirar; carpeta: abrir/eliminar; área:
+  nueva carpeta/subir/actualizar), ficha de **Propiedades**, y los archivos se **mueven entre
+  carpetas** arrastrándolos a una carpeta o a un nivel del breadcrumb (o con "Mover a...",
+  PATCH del documento). Para oficina hay una **zona de
   subida siempre visible** (arrastrar o clic) que abre el modal con los archivos y la carpeta
   actual precargados. Targeting por tienda (todas o específicas), subida por
   oficina (máx. 25 MB; archivos en `uploads/documentos/` del servidor — configurable con
