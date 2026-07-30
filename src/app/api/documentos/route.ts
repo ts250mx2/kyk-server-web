@@ -26,23 +26,28 @@ export async function GET(request: Request) {
 
     try {
         const [docs, carpetas, descargas, conteos] = await Promise.all([
+            // Vista de carpeta estricta, como el explorador: la raíz muestra solo
+            // documentos sin carpeta (o de carpetas retiradas, para no perderlos);
+            // con búsqueda activa se escanean TODAS las carpetas.
             portalQuery(`
                 SELECT D.IdDocumento, D.IdCarpeta, D.Nombre, D.NombreArchivo, D.Tamano,
                        D.TipoMime, D.TodasTiendas, D.SubidoPorNombre, D.FechaSubida,
                        C.Nombre AS Carpeta
                 FROM documentos D
-                LEFT JOIN documentos_carpetas C ON C.IdCarpeta = D.IdCarpeta
+                LEFT JOIN documentos_carpetas C ON C.IdCarpeta = D.IdCarpeta AND C.Status = 0
                 WHERE D.Status = 0
                   ${oficina ? '' : `AND (D.TodasTiendas = 1 OR EXISTS (
                       SELECT 1 FROM documentos_tiendas T
                       WHERE T.IdDocumento = D.IdDocumento AND T.IdTienda = ?
                   ))`}
-                  ${idCarpeta > 0 ? 'AND D.IdCarpeta = ?' : ''}
+                  ${busqueda ? '' : (idCarpeta > 0
+                      ? 'AND D.IdCarpeta = ?'
+                      : 'AND (D.IdCarpeta = 0 OR C.IdCarpeta IS NULL)')}
                 ORDER BY D.FechaSubida DESC
                 LIMIT 500
             `, [
                 ...(oficina ? [] : [session.idTienda]),
-                ...(idCarpeta > 0 ? [idCarpeta] : []),
+                ...(!busqueda && idCarpeta > 0 ? [idCarpeta] : []),
             ]) as Promise<Row[]>,
             portalQuery(`
                 SELECT IdCarpeta, Nombre, IdCarpetaPadre FROM documentos_carpetas WHERE Status = 0 ORDER BY Nombre
