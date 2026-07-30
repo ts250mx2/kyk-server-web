@@ -279,6 +279,8 @@ export default function DocumentosPage() {
     const rutaActual = rutaHasta(carpetas, carpetaSel)
     const subcarpetas = carpetas.filter(c => c.idPadre === carpetaSel)
     const rutaDe = (id: number) => rutaHasta(carpetas, id).map(c => c.nombre).join(" / ")
+    // Carpeta anterior (padre del nivel abierto; 0 = raíz)
+    const idPadreActual = rutaActual[rutaActual.length - 2]?.idCarpeta ?? 0
 
     return (
         <div
@@ -379,9 +381,20 @@ export default function DocumentosPage() {
             {carpetaSel > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
                     <button
-                        onClick={() => cambiarCarpeta(rutaActual[rutaActual.length - 2]?.idCarpeta ?? 0)}
+                        onClick={() => cambiarCarpeta(idPadreActual)}
+                        onDragOver={e => {
+                            if (e.dataTransfer.types.includes("application/x-documento")) { e.preventDefault(); e.stopPropagation() }
+                        }}
+                        onDrop={e => {
+                            if (e.dataTransfer.types.includes("application/x-documento")) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                const id = Number(e.dataTransfer.getData("application/x-documento"))
+                                if (id > 0) mover(id, idPadreActual)
+                            }
+                        }}
                         className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
-                        title="Regresar a la carpeta anterior"
+                        title="Regresar a la carpeta anterior — suelta aquí un archivo para moverlo"
                     >
                         <ArrowLeft className="h-4 w-4" />
                     </button>
@@ -448,6 +461,42 @@ export default function DocumentosPage() {
                 </div>
             ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {/* Tile ".." — carpeta anterior, como el explorador clásico */}
+                    {carpetaSel > 0 && (
+                        <div
+                            onDragOver={e => {
+                                if (rol === "oficina" && e.dataTransfer.types.includes("application/x-documento")) {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setCarpetaHover(-1)
+                                }
+                            }}
+                            onDragLeave={() => setCarpetaHover(h => (h === -1 ? 0 : h))}
+                            onDrop={e => {
+                                if (rol === "oficina" && e.dataTransfer.types.includes("application/x-documento")) {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setCarpetaHover(0)
+                                    const id = Number(e.dataTransfer.getData("application/x-documento"))
+                                    if (id > 0) mover(id, idPadreActual)
+                                }
+                            }}
+                        >
+                            <button
+                                onClick={() => cambiarCarpeta(idPadreActual)}
+                                className={cn(
+                                    "w-full h-full flex flex-col items-center justify-center gap-1.5 p-4 rounded-2xl bg-white/[0.02] border border-white/10 hover:bg-white/[0.06] hover:border-white/25 transition-all",
+                                    carpetaHover === -1 && "border-emerald-400/70 bg-emerald-500/10 scale-[1.03]"
+                                )}
+                                title="Carpeta anterior — suelta aquí un archivo para moverlo"
+                            >
+                                <ArrowLeft className="h-9 w-9 text-slate-500" />
+                                <span className="text-[12px] font-black text-slate-400">..</span>
+                                <span className="text-[10px] font-bold text-slate-600">Carpeta anterior</span>
+                            </button>
+                        </div>
+                    )}
+
                     {subcarpetas.map(c => {
                         const nSub = carpetas.filter(x => x.idPadre === c.idCarpeta).length
                         return (
