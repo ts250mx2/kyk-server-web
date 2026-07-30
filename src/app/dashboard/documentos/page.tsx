@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import {
     Loader2, AlertTriangle, X, Plus, Search, RefreshCw, Download,
     FolderOpen, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon,
-    Trash2, Eye, Upload
+    Trash2, Eye, Upload, Folder, FolderPlus, ArrowLeft, ChevronRight, Check
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
@@ -24,7 +24,7 @@ interface Documento {
     descargas: number
 }
 
-interface Carpeta { idCarpeta: number; nombre: string }
+interface Carpeta { idCarpeta: number; nombre: string; documentos: number }
 interface TiendaOption { IdTienda: number; Tienda: string }
 interface Descarga { tienda: string; usuario: string; fecha: string }
 
@@ -48,6 +48,10 @@ export default function DocumentosPage() {
     const [rol, setRol] = useState<"oficina" | "tienda">("tienda")
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState("")
+
+    // Nueva carpeta en el explorador (oficina)
+    const [creandoCarpeta, setCreandoCarpeta] = useState(false)
+    const [nombreCarpeta, setNombreCarpeta] = useState("")
 
     // Modal subir (oficina)
     const [subirAbierto, setSubirAbierto] = useState(false)
@@ -96,7 +100,43 @@ export default function DocumentosPage() {
         cargar(id, busqueda.trim())
     }
 
+    const crearCarpeta = async () => {
+        const nombre = nombreCarpeta.trim()
+        if (!nombre) return
+        setError("")
+        try {
+            const res = await fetch("/api/documentos/carpetas", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nombre }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || "No fue posible crear la carpeta")
+            setCreandoCarpeta(false)
+            setNombreCarpeta("")
+            cargar(carpetaSel, busqueda.trim())
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "No fue posible crear la carpeta")
+        }
+    }
+
+    const borrarCarpeta = async (c: Carpeta) => {
+        if (!window.confirm(`¿Eliminar la carpeta "${c.nombre}"?`)) return
+        setError("")
+        try {
+            const res = await fetch(`/api/documentos/carpetas?idCarpeta=${c.idCarpeta}`, { method: "DELETE" })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || "No fue posible eliminar la carpeta")
+            if (carpetaSel === c.idCarpeta) setCarpetaSel(0)
+            cargar(carpetaSel === c.idCarpeta ? 0 : carpetaSel, busqueda.trim())
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "No fue posible eliminar la carpeta")
+        }
+    }
+
     const abrirSubir = async () => {
+        // Precarga la carpeta abierta como destino de la subida
+        setCarpetaDestino(carpetaSel)
         setSubirAbierto(true)
         if (tiendas.length === 0) {
             try {
@@ -251,34 +291,117 @@ export default function DocumentosPage() {
                 </div>
             </div>
 
-            {/* Carpetas */}
-            <div className="flex flex-wrap gap-2">
-                <button
-                    onClick={() => cambiarCarpeta(0)}
-                    className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all",
-                        carpetaSel === 0
-                            ? "bg-emerald-500 text-slate-950 border-emerald-500"
-                            : "bg-white/[0.04] text-slate-400 border-white/10 hover:text-white"
-                    )}
-                >
-                    <FolderOpen className="h-3.5 w-3.5" /> Todas
-                </button>
-                {carpetas.map(c => (
+            {/* Explorador de carpetas, al estilo del explorador de Windows */}
+            {carpetaSel === 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {carpetas.map(c => (
+                        <div key={c.idCarpeta} className="relative group">
+                            <button
+                                onClick={() => cambiarCarpeta(c.idCarpeta)}
+                                className="w-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-amber-400/40 transition-all"
+                                title={`Abrir la carpeta ${c.nombre}`}
+                            >
+                                <Folder className="h-10 w-10 text-amber-400 fill-amber-400/25" />
+                                <span className="text-[12px] font-black text-slate-200 truncate w-full text-center">{c.nombre}</span>
+                                <span className="text-[10px] font-bold text-slate-500">
+                                    {fmtInt(c.documentos)} doc{c.documentos !== 1 ? "s" : ""}
+                                </span>
+                            </button>
+                            {rol === "oficina" && (
+                                <button
+                                    onClick={() => borrarCarpeta(c)}
+                                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-500 hover:text-rose-300 hover:border-rose-500/40 opacity-0 group-hover:opacity-100 transition-all"
+                                    title={c.documentos > 0 ? "Solo se pueden eliminar carpetas vacías" : "Eliminar carpeta"}
+                                >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+
+                    {rol === "oficina" && (creandoCarpeta ? (
+                        <div className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-white/[0.02] border-2 border-dashed border-emerald-400/40">
+                            <FolderPlus className="h-8 w-8 text-emerald-400" />
+                            <input
+                                autoFocus
+                                type="text"
+                                maxLength={100}
+                                placeholder="Nombre..."
+                                className="w-full px-2 py-1.5 bg-white/[0.05] border border-white/10 rounded-lg text-[12px] font-bold text-slate-100 text-center placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/25"
+                                value={nombreCarpeta}
+                                onChange={e => setNombreCarpeta(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === "Enter") crearCarpeta()
+                                    if (e.key === "Escape") { setCreandoCarpeta(false); setNombreCarpeta("") }
+                                }}
+                            />
+                            <div className="flex items-center gap-1.5">
+                                <button
+                                    onClick={crearCarpeta}
+                                    disabled={!nombreCarpeta.trim()}
+                                    className="p-1.5 rounded-lg bg-emerald-500 text-slate-950 hover:brightness-110 transition-all disabled:opacity-40"
+                                    title="Crear carpeta (Enter)"
+                                >
+                                    <Check className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => { setCreandoCarpeta(false); setNombreCarpeta("") }}
+                                    className="p-1.5 rounded-lg bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                                    title="Cancelar (Esc)"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setCreandoCarpeta(true)}
+                            className="flex flex-col items-center justify-center gap-2 p-4 min-h-[110px] rounded-2xl bg-white/[0.02] border-2 border-dashed border-white/15 text-slate-500 hover:text-emerald-300 hover:border-emerald-400/40 transition-all"
+                        >
+                            <FolderPlus className="h-8 w-8" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Nueva Carpeta</span>
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <div className="flex items-center gap-2">
                     <button
-                        key={c.idCarpeta}
-                        onClick={() => cambiarCarpeta(c.idCarpeta)}
-                        className={cn(
-                            "flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all",
-                            carpetaSel === c.idCarpeta
-                                ? "bg-emerald-500 text-slate-950 border-emerald-500"
-                                : "bg-white/[0.04] text-slate-400 border-white/10 hover:text-white"
-                        )}
+                        onClick={() => cambiarCarpeta(0)}
+                        className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                        title="Regresar a todas las carpetas"
                     >
-                        <FolderOpen className="h-3.5 w-3.5" /> {c.nombre}
+                        <ArrowLeft className="h-4 w-4" />
                     </button>
-                ))}
-            </div>
+                    <button
+                        onClick={() => cambiarCarpeta(0)}
+                        className="text-[12px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
+                    >
+                        Documentos
+                    </button>
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-600" />
+                    <span className="flex items-center gap-1.5 text-[12px] font-black text-amber-300 uppercase tracking-widest">
+                        <Folder className="h-4 w-4 fill-amber-400/25" />
+                        {carpetas.find(c => c.idCarpeta === carpetaSel)?.nombre ?? "Carpeta"}
+                    </span>
+                </div>
+            )}
+
+            {/* Área de subida siempre visible (oficina): suelta o elige archivos
+                y se abren en el modal con la carpeta actual precargada */}
+            {rol === "oficina" && (
+                <DropZone
+                    multiple
+                    onFiles={fs => {
+                        if (fs.length === 0) return
+                        setArchivos(prev => [...prev, ...fs])
+                        if (fs.length === 1 && !nombre.trim()) setNombre(fs[0].name)
+                        abrirSubir()
+                    }}
+                    mensaje={`Arrastra archivos aquí o haz clic para elegir — se subirán a ${carpetaSel > 0
+                        ? `la carpeta "${carpetas.find(c => c.idCarpeta === carpetaSel)?.nombre ?? ""}"`
+                        : '"Sin carpeta" (puedes cambiarla al subir)'}`}
+                />
+            )}
 
             {error && (
                 <div className="flex items-center gap-2 text-rose-300 text-[11px] font-black bg-rose-500/10 p-3 rounded-xl border border-rose-500/25 uppercase tracking-wider">

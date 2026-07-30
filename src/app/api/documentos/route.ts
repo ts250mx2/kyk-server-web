@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     const oficina = await esOficina(session.codigobarras);
 
     try {
-        const [docs, carpetas, descargas] = await Promise.all([
+        const [docs, carpetas, descargas, conteos] = await Promise.all([
             portalQuery(`
                 SELECT D.IdDocumento, D.IdCarpeta, D.Nombre, D.NombreArchivo, D.Tamano,
                        D.TipoMime, D.TodasTiendas, D.SubidoPorNombre, D.FechaSubida,
@@ -52,9 +52,21 @@ export async function GET(request: Request) {
                     SELECT IdDocumento, COUNT(*) AS N FROM documentos_descargas GROUP BY IdDocumento
                 `) as Promise<Row[]>
                 : Promise.resolve([] as Row[]),
+            // Documentos visibles por carpeta, para el explorador
+            portalQuery(`
+                SELECT D.IdCarpeta, COUNT(*) AS N
+                FROM documentos D
+                WHERE D.Status = 0
+                  ${oficina ? '' : `AND (D.TodasTiendas = 1 OR EXISTS (
+                      SELECT 1 FROM documentos_tiendas T
+                      WHERE T.IdDocumento = D.IdDocumento AND T.IdTienda = ?
+                  ))`}
+                GROUP BY D.IdCarpeta
+            `, oficina ? [] : [session.idTienda]) as Promise<Row[]>,
         ]);
 
         const descargasMap = new Map(descargas.map(d => [num(d.IdDocumento), num(d.N)]));
+        const conteoCarpetas = new Map(conteos.map(c => [num(c.IdCarpeta), num(c.N)]));
 
         let documentos = docs.map(d => ({
             idDocumento: num(d.IdDocumento),
@@ -79,7 +91,11 @@ export async function GET(request: Request) {
         return NextResponse.json({
             rol: oficina ? 'oficina' : 'tienda',
             total: documentos.length,
-            carpetas: carpetas.map(c => ({ idCarpeta: num(c.IdCarpeta), nombre: str(c.Nombre) })),
+            carpetas: carpetas.map(c => ({
+                idCarpeta: num(c.IdCarpeta),
+                nombre: str(c.Nombre),
+                documentos: conteoCarpetas.get(num(c.IdCarpeta)) ?? 0,
+            })),
             documentos,
         });
     } catch (error) {

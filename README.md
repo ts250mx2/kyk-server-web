@@ -223,7 +223,12 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   Rol='oficina'.
 
 - **Comunicación → Documentos** (`/dashboard/documentos`): fase 2 del portal. Repositorio de
-  archivos con **carpetas** (chips), targeting por tienda (todas o específicas), subida por
+  archivos con **explorador de carpetas al estilo Windows**: cuadrícula de carpetas con conteo
+  de documentos, tile "Nueva Carpeta" con captura inline (Enter crea, Esc cancela), botón de
+  eliminar al pasar el cursor (solo carpetas vacías — el API rechaza con 409 si tiene
+  documentos) y breadcrumb "Documentos › Carpeta" al entrar. Para oficina hay una **zona de
+  subida siempre visible** (arrastrar o clic) que abre el modal con los archivos y la carpeta
+  actual precargados. Targeting por tienda (todas o específicas), subida por
   oficina (máx. 25 MB; archivos en `uploads/documentos/` del servidor — configurable con
   `PORTAL_UPLOADS` — y metadatos en BDKYKPortal), descarga con **auditoría** (quién bajó qué
   y cuándo; oficina ve el conteo y el detalle por documento) y retiro suave. Búsqueda por

@@ -33,3 +33,44 @@ export async function POST(request: Request) {
         );
     }
 }
+
+// Eliminar carpeta (solo oficina): retiro suave y únicamente si está vacía —
+// si tiene documentos activos se rechaza para no dejar archivos huérfanos.
+export async function DELETE(request: Request) {
+    const session = await getSession();
+    if (!session) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    if (!(await esOficina(session.codigobarras))) {
+        return NextResponse.json({ error: 'Solo el rol oficina puede eliminar carpetas' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const idCarpeta = Number(searchParams.get('idCarpeta'));
+    if (!Number.isInteger(idCarpeta) || idCarpeta <= 0) {
+        return NextResponse.json({ error: 'Carpeta inválida' }, { status: 400 });
+    }
+
+    try {
+        const docs = (await portalQuery(
+            'SELECT COUNT(*) AS N FROM documentos WHERE IdCarpeta = ? AND Status = 0',
+            [idCarpeta]
+        )) as { N: unknown }[];
+        const n = Number(docs?.[0]?.N ?? 0);
+        if (n > 0) {
+            return NextResponse.json(
+                { error: `La carpeta tiene ${n} documento${n > 1 ? 's' : ''} — retíralos o muévelos antes de eliminarla` },
+                { status: 409 }
+            );
+        }
+
+        await portalQuery('UPDATE documentos_carpetas SET Status = 1 WHERE IdCarpeta = ?', [idCarpeta]);
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('Error eliminando carpeta:', error);
+        return NextResponse.json(
+            { error: 'No fue posible eliminar la carpeta.' },
+            { status: 502 }
+        );
+    }
+}
