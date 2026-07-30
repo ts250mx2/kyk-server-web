@@ -15,14 +15,24 @@ export async function POST(request: Request) {
     }
 
     try {
-        const { nombre } = await request.json();
+        const { nombre, idPadre } = await request.json();
         if (!nombre?.trim()) {
             return NextResponse.json({ error: 'Nombre de carpeta requerido' }, { status: 400 });
         }
+        const padre = Number(idPadre) || 0;
+        if (padre > 0) {
+            const existe = (await portalQuery(
+                'SELECT IdCarpeta FROM documentos_carpetas WHERE IdCarpeta = ? AND Status = 0 LIMIT 1',
+                [padre]
+            )) as { IdCarpeta: unknown }[];
+            if (!existe || existe.length === 0) {
+                return NextResponse.json({ error: 'La carpeta padre no existe' }, { status: 400 });
+            }
+        }
 
         const resultado = await portalQuery(`
-            INSERT INTO documentos_carpetas (Nombre, Status, FechaAlta) VALUES (?, 0, NOW())
-        `, [String(nombre).trim().slice(0, 100)]) as unknown as { insertId: number };
+            INSERT INTO documentos_carpetas (Nombre, IdCarpetaPadre, Status, FechaAlta) VALUES (?, ?, 0, NOW())
+        `, [String(nombre).trim().slice(0, 100), padre]) as unknown as { insertId: number };
 
         return NextResponse.json({ success: true, idCarpeta: resultado.insertId });
     } catch (error) {
@@ -52,14 +62,27 @@ export async function DELETE(request: Request) {
     }
 
     try {
-        const docs = (await portalQuery(
-            'SELECT COUNT(*) AS N FROM documentos WHERE IdCarpeta = ? AND Status = 0',
-            [idCarpeta]
-        )) as { N: unknown }[];
+        const [docs, subcarpetas] = await Promise.all([
+            portalQuery(
+                'SELECT COUNT(*) AS N FROM documentos WHERE IdCarpeta = ? AND Status = 0',
+                [idCarpeta]
+            ) as Promise<{ N: unknown }[]>,
+            portalQuery(
+                'SELECT COUNT(*) AS N FROM documentos_carpetas WHERE IdCarpetaPadre = ? AND Status = 0',
+                [idCarpeta]
+            ) as Promise<{ N: unknown }[]>,
+        ]);
         const n = Number(docs?.[0]?.N ?? 0);
         if (n > 0) {
             return NextResponse.json(
                 { error: `La carpeta tiene ${n} documento${n > 1 ? 's' : ''} — retíralos o muévelos antes de eliminarla` },
+                { status: 409 }
+            );
+        }
+        const nSub = Number(subcarpetas?.[0]?.N ?? 0);
+        if (nSub > 0) {
+            return NextResponse.json(
+                { error: `La carpeta tiene ${nSub} subcarpeta${nSub > 1 ? 's' : ''} — elimínalas primero` },
                 { status: 409 }
             );
         }

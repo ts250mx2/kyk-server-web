@@ -45,7 +45,7 @@ export async function GET(request: Request) {
                 ...(idCarpeta > 0 ? [idCarpeta] : []),
             ]) as Promise<Row[]>,
             portalQuery(`
-                SELECT IdCarpeta, Nombre FROM documentos_carpetas WHERE Status = 0 ORDER BY Nombre
+                SELECT IdCarpeta, Nombre, IdCarpetaPadre FROM documentos_carpetas WHERE Status = 0 ORDER BY Nombre
             `) as Promise<Row[]>,
             oficina
                 ? portalQuery(`
@@ -94,6 +94,7 @@ export async function GET(request: Request) {
             carpetas: carpetas.map(c => ({
                 idCarpeta: num(c.IdCarpeta),
                 nombre: str(c.Nombre),
+                idPadre: num(c.IdCarpetaPadre),
                 documentos: conteoCarpetas.get(num(c.IdCarpeta)) ?? 0,
             })),
             documentos,

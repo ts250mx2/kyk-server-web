@@ -52,6 +52,7 @@ const TABLAS = [
     `CREATE TABLE IF NOT EXISTS documentos_carpetas (
         IdCarpeta INT AUTO_INCREMENT PRIMARY KEY,
         Nombre VARCHAR(100) NOT NULL,
+        IdCarpetaPadre INT NOT NULL DEFAULT 0,
         Status TINYINT NOT NULL DEFAULT 0,
         FechaAlta DATETIME NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
@@ -113,6 +114,12 @@ const TABLAS = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
 ];
 
+// Migraciones aditivas sobre instalaciones existentes; el error 1060
+// (columna duplicada) significa que la migración ya corrió y se ignora.
+const MIGRACIONES = [
+    `ALTER TABLE documentos_carpetas ADD COLUMN IdCarpetaPadre INT NOT NULL DEFAULT 0`,
+];
+
 let esquemaListo: Promise<void> | null = null;
 
 function asegurarEsquema(): Promise<void> {
@@ -120,6 +127,13 @@ function asegurarEsquema(): Promise<void> {
         esquemaListo = (async () => {
             for (const ddl of TABLAS) {
                 await pool.query(ddl);
+            }
+            for (const ddl of MIGRACIONES) {
+                try {
+                    await pool.query(ddl);
+                } catch (err) {
+                    if ((err as { errno?: number }).errno !== 1060) throw err;
+                }
             }
         })().catch(err => {
             // Permitir reintento en la siguiente llamada si falló (p. ej. red caída)

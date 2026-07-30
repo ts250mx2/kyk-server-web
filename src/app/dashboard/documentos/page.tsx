@@ -24,7 +24,20 @@ interface Documento {
     descargas: number
 }
 
-interface Carpeta { idCarpeta: number; nombre: string; documentos: number }
+interface Carpeta { idCarpeta: number; nombre: string; idPadre: number; documentos: number }
+
+// Cadena de carpetas desde la raíz hasta la indicada (breadcrumb y rutas)
+const rutaHasta = (carpetas: Carpeta[], id: number): Carpeta[] => {
+    const ruta: Carpeta[] = []
+    let actual = id
+    for (let i = 0; i < 10 && actual > 0; i++) {
+        const c = carpetas.find(x => x.idCarpeta === actual)
+        if (!c) break
+        ruta.unshift(c)
+        actual = c.idPadre
+    }
+    return ruta
+}
 interface TiendaOption { IdTienda: number; Tienda: string }
 interface Descarga { tienda: string; usuario: string; fecha: string }
 
@@ -108,7 +121,7 @@ export default function DocumentosPage() {
             const res = await fetch("/api/documentos/carpetas", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ nombre }),
+                body: JSON.stringify({ nombre, idPadre: carpetaSel }),
             })
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || "No fue posible crear la carpeta")
@@ -230,6 +243,11 @@ export default function DocumentosPage() {
         })
     }
 
+    // Árbol de carpetas: ruta actual, subcarpetas del nivel abierto y ruta completa
+    const rutaActual = rutaHasta(carpetas, carpetaSel)
+    const subcarpetas = carpetas.filter(c => c.idPadre === carpetaSel)
+    const rutaDe = (id: number) => rutaHasta(carpetas, id).map(c => c.nombre).join(" / ")
+
     return (
         <div
             className={cn(
@@ -292,32 +310,71 @@ export default function DocumentosPage() {
             </div>
 
             {/* Explorador de carpetas, al estilo del explorador de Windows */}
-            {carpetaSel === 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                    {carpetas.map(c => (
-                        <div key={c.idCarpeta} className="relative group">
-                            <button
-                                onClick={() => cambiarCarpeta(c.idCarpeta)}
-                                className="w-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-amber-400/40 transition-all"
-                                title={`Abrir la carpeta ${c.nombre}`}
-                            >
-                                <Folder className="h-10 w-10 text-amber-400 fill-amber-400/25" />
-                                <span className="text-[12px] font-black text-slate-200 truncate w-full text-center">{c.nombre}</span>
-                                <span className="text-[10px] font-bold text-slate-500">
-                                    {fmtInt(c.documentos)} doc{c.documentos !== 1 ? "s" : ""}
+            {carpetaSel > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                        onClick={() => cambiarCarpeta(rutaActual[rutaActual.length - 2]?.idCarpeta ?? 0)}
+                        className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                        title="Regresar a la carpeta anterior"
+                    >
+                        <ArrowLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                        onClick={() => cambiarCarpeta(0)}
+                        className="text-[12px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
+                    >
+                        Documentos
+                    </button>
+                    {rutaActual.map((c, i) => (
+                        <span key={c.idCarpeta} className="flex items-center gap-2">
+                            <ChevronRight className="h-3.5 w-3.5 text-slate-600" />
+                            {i === rutaActual.length - 1 ? (
+                                <span className="flex items-center gap-1.5 text-[12px] font-black text-amber-300 uppercase tracking-widest">
+                                    <Folder className="h-4 w-4 fill-amber-400/25" /> {c.nombre}
                                 </span>
-                            </button>
-                            {rol === "oficina" && (
+                            ) : (
                                 <button
-                                    onClick={() => borrarCarpeta(c)}
-                                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-500 hover:text-rose-300 hover:border-rose-500/40 opacity-0 group-hover:opacity-100 transition-all"
-                                    title={c.documentos > 0 ? "Solo se pueden eliminar carpetas vacías" : "Eliminar carpeta"}
+                                    onClick={() => cambiarCarpeta(c.idCarpeta)}
+                                    className="text-[12px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
                                 >
-                                    <Trash2 className="h-3.5 w-3.5" />
+                                    {c.nombre}
                                 </button>
                             )}
-                        </div>
+                        </span>
                     ))}
+                </div>
+            )}
+
+            {(subcarpetas.length > 0 || rol === "oficina") && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {subcarpetas.map(c => {
+                        const nSub = carpetas.filter(x => x.idPadre === c.idCarpeta).length
+                        return (
+                            <div key={c.idCarpeta} className="relative group">
+                                <button
+                                    onClick={() => cambiarCarpeta(c.idCarpeta)}
+                                    className="w-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-amber-400/40 transition-all"
+                                    title={`Abrir la carpeta ${c.nombre}`}
+                                >
+                                    <Folder className="h-10 w-10 text-amber-400 fill-amber-400/25" />
+                                    <span className="text-[12px] font-black text-slate-200 truncate w-full text-center">{c.nombre}</span>
+                                    <span className="text-[10px] font-bold text-slate-500">
+                                        {nSub > 0 ? `${fmtInt(nSub)} carp · ` : ""}
+                                        {fmtInt(c.documentos)} doc{c.documentos !== 1 ? "s" : ""}
+                                    </span>
+                                </button>
+                                {rol === "oficina" && (
+                                    <button
+                                        onClick={() => borrarCarpeta(c)}
+                                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-500 hover:text-rose-300 hover:border-rose-500/40 opacity-0 group-hover:opacity-100 transition-all"
+                                        title={c.documentos > 0 || nSub > 0 ? "Solo se pueden eliminar carpetas vacías" : "Eliminar carpeta"}
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                        )
+                    })}
 
                     {rol === "oficina" && (creandoCarpeta ? (
                         <div className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-white/[0.02] border-2 border-dashed border-emerald-400/40">
@@ -363,27 +420,6 @@ export default function DocumentosPage() {
                         </button>
                     ))}
                 </div>
-            ) : (
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => cambiarCarpeta(0)}
-                        className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
-                        title="Regresar a todas las carpetas"
-                    >
-                        <ArrowLeft className="h-4 w-4" />
-                    </button>
-                    <button
-                        onClick={() => cambiarCarpeta(0)}
-                        className="text-[12px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors"
-                    >
-                        Documentos
-                    </button>
-                    <ChevronRight className="h-3.5 w-3.5 text-slate-600" />
-                    <span className="flex items-center gap-1.5 text-[12px] font-black text-amber-300 uppercase tracking-widest">
-                        <Folder className="h-4 w-4 fill-amber-400/25" />
-                        {carpetas.find(c => c.idCarpeta === carpetaSel)?.nombre ?? "Carpeta"}
-                    </span>
-                </div>
             )}
 
             {/* Área de subida siempre visible (oficina): suelta o elige archivos
@@ -398,7 +434,7 @@ export default function DocumentosPage() {
                         abrirSubir()
                     }}
                     mensaje={`Arrastra archivos aquí o haz clic para elegir — se subirán a ${carpetaSel > 0
-                        ? `la carpeta "${carpetas.find(c => c.idCarpeta === carpetaSel)?.nombre ?? ""}"`
+                        ? `"${rutaDe(carpetaSel)}"`
                         : '"Sin carpeta" (puedes cambiarla al subir)'}`}
                 />
             )}
@@ -431,7 +467,7 @@ export default function DocumentosPage() {
                             <div className="min-w-0 flex-1">
                                 <p className="text-[13px] font-black text-slate-100 truncate">{d.nombre}</p>
                                 <p className="text-[11px] font-bold text-slate-500 truncate">
-                                    {d.nombreArchivo} · {fmtTamano(d.tamano)} · {d.carpeta}
+                                    {d.nombreArchivo} · {fmtTamano(d.tamano)} · {d.idCarpeta > 0 ? (rutaDe(d.idCarpeta) || d.carpeta) : d.carpeta}
                                     {!d.todasTiendas ? " · Tiendas específicas" : ""}
                                 </p>
                                 <p className="text-[10px] font-bold text-slate-600">
@@ -543,9 +579,13 @@ export default function DocumentosPage() {
                                         disabled={Boolean(carpetaNueva.trim())}
                                     >
                                         <option value={0} className="bg-[#0b1220]">SIN CARPETA</option>
-                                        {carpetas.map(c => (
-                                            <option key={c.idCarpeta} value={c.idCarpeta} className="bg-[#0b1220]">{c.nombre}</option>
-                                        ))}
+                                        {[...carpetas]
+                                            .sort((a, b) => rutaDe(a.idCarpeta).localeCompare(rutaDe(b.idCarpeta)))
+                                            .map(c => (
+                                                <option key={c.idCarpeta} value={c.idCarpeta} className="bg-[#0b1220]">
+                                                    {rutaDe(c.idCarpeta)}
+                                                </option>
+                                            ))}
                                     </select>
                                 </div>
                                 <div>

@@ -223,10 +223,13 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   Rol='oficina'.
 
 - **Comunicación → Documentos** (`/dashboard/documentos`): fase 2 del portal. Repositorio de
-  archivos con **explorador de carpetas al estilo Windows**: cuadrícula de carpetas con conteo
-  de documentos, tile "Nueva Carpeta" con captura inline (Enter crea, Esc cancela), botón de
-  eliminar al pasar el cursor (solo carpetas vacías — el API rechaza con 409 si tiene
-  documentos) y breadcrumb "Documentos › Carpeta" al entrar. Para oficina hay una **zona de
+  archivos con **explorador de carpetas al estilo Windows**, con **subcarpetas** (carpetas
+  dentro de carpetas, columna `IdCarpetaPadre` con migración aditiva): cuadrícula de carpetas
+  con conteo de subcarpetas y documentos, tile "Nueva Carpeta" con captura inline (Enter crea,
+  Esc cancela — crea en el nivel abierto), botón de eliminar al pasar el cursor (solo carpetas
+  vacías — el API rechaza con 409 si tiene documentos o subcarpetas) y breadcrumb multinivel
+  "Documentos › Carpeta › Subcarpeta" navegable con botón de regreso al nivel anterior. El
+  combo de carpetas del modal de subida muestra la ruta completa ("Padre / Hija"). Para oficina hay una **zona de
   subida siempre visible** (arrastrar o clic) que abre el modal con los archivos y la carpeta
   actual precargados. Targeting por tienda (todas o específicas), subida por
   oficina (máx. 25 MB; archivos en `uploads/documentos/` del servidor — configurable con
