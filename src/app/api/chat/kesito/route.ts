@@ -8,8 +8,9 @@ export const maxDuration = 120;
 // Kesito de tienda: agente del chat acotado ESTRICTAMENTE al portal. Sus
 // herramientas llaman a las propias APIs del portal con la cookie de la sesión,
 // así que solo ve los datos de la tienda del usuario (precios, ofertas, básculas,
-// cortes, facturas, recibos, transferencias y devoluciones). Modelo fijo sonnet-5.
-const MODELO = 'claude-sonnet-5';
+// cortes, facturas, recibos, transferencias y devoluciones).
+// El modelo se configura SOLO en .env (AGENTES_MODELO) y no se muestra en la UI.
+const MODELO = process.env.AGENTES_MODELO || 'claude-opus-5';
 const MAX_ITERACIONES = 6;
 const MAX_HISTORIAL = 12;
 const MAX_RESULTADO = 12_000;

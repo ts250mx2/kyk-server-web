@@ -415,7 +415,7 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
                     </div>
                     <div className="leading-tight">
                         <h1 className="jarvis-title text-lg font-black tracking-[0.18em]">{config.nombre}</h1>
-                        <p className="text-[10px] text-slate-500 tracking-[0.25em] uppercase">Modo Voz · {config.modelo}</p>
+                        <p className="text-[10px] text-slate-500 tracking-[0.25em] uppercase">Modo Voz · Asistente IA</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">

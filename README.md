@@ -350,8 +350,10 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   como canal fijo al inicio de la lista de canales del chat (no existe en BDKYKPortal; la
   conversación es local al navegador, en `sessionStorage`). El panel
   ([src/components/dashboard/KesitoPanel.tsx](src/components/dashboard/KesitoPanel.tsx)) consulta
-  `/api/chat/kesito`, que corre un loop agéntico con **Claude Sonnet** (`@anthropic-ai/sdk`,
-  requiere `ANTHROPIC_API_KEY` en `.env`; sin ella responde 503). Las herramientas del agente son
+  `/api/chat/kesito`, que corre un loop agéntico con el modelo de `AGENTES_MODELO` en `.env`
+  (default **Claude Opus 5**; aplica a KESITO y A.D.iA.N, no se muestra en la interfaz)
+  (`@anthropic-ai/sdk`, requiere `ANTHROPIC_API_KEY` en `.env`; sin ella responde 503; al
+  cambiar el modelo hay que reiniciar el servicio). Las herramientas del agente son
   las **propias APIs del portal** invocadas con la cookie de la sesión, así que solo ve datos de
   la tienda conectada: resumen del día, precios y detalle de artículos, ofertas, precios de
   báscula, cortes de caja, recibos, transferencias, facturas y devoluciones (venta y compra).

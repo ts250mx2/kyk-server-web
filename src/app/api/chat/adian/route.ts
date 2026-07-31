@@ -11,7 +11,8 @@ export const maxDuration = 120;
 // los documentos subidos al portal (respetando la visibilidad por tienda).
 // Mismo protocolo streaming NDJSON que Kesito; sus herramientas listan y leen
 // documentos de BDKYKPortal, con extracción de texto local (PDF/Word/Excel).
-const MODELO = 'claude-sonnet-5';
+// El modelo se configura SOLO en .env (AGENTES_MODELO) y no se muestra en la UI.
+const MODELO = process.env.AGENTES_MODELO || 'claude-opus-5';
 const MAX_ITERACIONES = 6;
 const MAX_HISTORIAL = 12;
 const MAX_LISTA = 100;

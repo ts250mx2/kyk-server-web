@@ -22,9 +22,6 @@ export interface ConfigAgente {
     nombre: string
     emoji: string
     subtitulo: string
-    // Etiqueta del modelo de IA que usa el agente (mantener en sintonía con
-    // la constante MODELO de su API route)
-    modelo: string
     endpoint: string
     prefijoStorage: string
     acento: "ambar" | "violeta"
@@ -335,12 +332,6 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
                     {/* Sin `uppercase` CSS: nombres como A.D.iA.N conservan su i minúscula */}
                     <h2 className="text-[13px] font-black text-white tracking-widest leading-none flex items-center gap-1.5">
                         {config.nombre} <Sparkles className={cn("h-3 w-3", acento.chispa)} />
-                        <span
-                            className="text-[8px] font-black text-slate-400 bg-white/[0.06] border border-white/10 rounded-md px-1.5 py-0.5 tracking-wider normal-case"
-                            title="Modelo de IA que responde en este canal"
-                        >
-                            {config.modelo}
-                        </span>
                     </h2>
                     <p className={cn("text-[9px] font-bold uppercase tracking-widest mt-1", acento.sub)}>
                         {config.subtitulo}
