@@ -70,10 +70,24 @@ export async function GET(request: Request) {
         const desde = `${inicio.toLocaleDateString('sv-SE')} 00:00:00`;
 
         const advertencias: string[] = [];
-        const consulta = async (nombre: string, sql: string, params: (string | number)[]): Promise<Row[]> => {
+        // Esquema viejo (bodegas): si falta una columna (errno 1054) se intenta
+        // sqlViejo, o se regresa vacío en silencio si el concepto no existe ahí
+        const consulta = async (
+            nombre: string,
+            sql: string,
+            params: (string | number)[],
+            opciones?: { sqlViejo?: string; omitirSiFaltaColumna?: boolean }
+        ): Promise<Row[]> => {
             try {
                 return ((await tiendaQuery(idTienda, sql, params)) as Row[]) ?? [];
-            } catch {
+            } catch (error) {
+                const faltaColumna = (error as { errno?: number }).errno === 1054;
+                if (faltaColumna && opciones?.sqlViejo) {
+                    try {
+                        return ((await tiendaQuery(idTienda, opciones.sqlViejo, params)) as Row[]) ?? [];
+                    } catch { /* cae a la advertencia */ }
+                }
+                if (faltaColumna && opciones?.omitirSiFaltaColumna) return [];
                 advertencias.push(nombre);
                 return [];
             }
@@ -106,7 +120,24 @@ export async function GET(request: Request) {
                 INNER JOIN tblArticulos D ON A.CodigoInterno = D.CodigoInterno
                 WHERE B.Status = 0 AND B.Devolucion = 0 AND B.FechaRecibo >= ?
                   AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
-            `, [desde, idTienda, ...codigos]),
+            `, [desde, idTienda, ...codigos], {
+                // Esquema viejo (bodegas): tblReciboMovil sin columna Devolucion
+                sqlViejo: `
+                    SELECT A.CodigoInterno AS Codigo, B.FechaRecibo AS Fecha,
+                           'Recibo' AS Tipo, B.FolioReciboMovil AS Folio,
+                           C.Proveedor AS Referencia,
+                           CASE WHEN D.IdTipo = 2 AND RecGranel > 0 THEN RecGranel
+                                ELSE CASE WHEN RecGranel = 0 AND D.TipoOperacion <> 1 THEN Rec * A.CantidadCompra
+                                          WHEN D.TipoOperacion = 1 THEN Rec
+                                          ELSE RecGranel / A.CantidadCompra END END AS Mov
+                    FROM tblDetalleReciboMovil A
+                    INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
+                    INNER JOIN tblProveedores C ON B.IdProveedor = C.IdProveedor
+                    INNER JOIN tblArticulos D ON A.CodigoInterno = D.CodigoInterno
+                    WHERE B.Status = 0 AND B.FechaRecibo >= ?
+                      AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
+                `,
+            }),
             consulta('devoluciones de recibo', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaRecibo AS Fecha,
                        'Devolución de Recibo' AS Tipo, B.FolioReciboMovil AS Folio,
@@ -116,7 +147,10 @@ export async function GET(request: Request) {
                 INNER JOIN tblProveedores C ON B.IdProveedor = C.IdProveedor
                 WHERE B.Status = 0 AND B.Devolucion = 1 AND RecGranel = 0 AND B.FechaRecibo >= ?
                   AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
-            `, [desde, idTienda, ...codigos]),
+            `, [desde, idTienda, ...codigos], {
+                // Esquema viejo: sin Devolucion no existen devoluciones de recibo
+                omitirSiFaltaColumna: true,
+            }),
             consulta('transferencias de entrada', `
                 SELECT A.CodigoInterno AS Codigo,
                        (CASE WHEN B.FechaEntrada = '1980-01-01' AND DATEDIFF(Now(), B.FechaSalida) > 2

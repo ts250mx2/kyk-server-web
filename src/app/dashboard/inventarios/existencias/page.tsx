@@ -323,6 +323,18 @@ export default function ExistenciasPage() {
                         </button>
                     </div>
 
+                    {existencia.corte.base < 0 && (
+                        <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/[0.08] px-4 py-3">
+                            <AlertTriangle className="h-4 w-4 text-rose-300 shrink-0 mt-0.5" />
+                            <p className="text-[12px] font-bold text-rose-200">
+                                La base del corte nocturno es <span className="font-black">negativa</span> — un dato físicamente
+                                imposible: la serie del inventario central trae arrastre (entradas no contadas a lo largo del
+                                tiempo). Esta existencia <span className="font-black">no es confiable</span>; se recomienda un
+                                inventario físico (ajuste) del artículo para re-anclarla.
+                            </p>
+                        </div>
+                    )}
+
                     {existencia.advertencias.length > 0 && (
                         <p className="text-[11px] font-bold text-amber-300/80">
                             Sin datos de: {existencia.advertencias.join(", ")} (tablas no disponibles en la tienda)

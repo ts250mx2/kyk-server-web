@@ -20,6 +20,14 @@ const num = (v: unknown): number => {
     return Number.isFinite(n) ? n : 0;
 };
 
+// Fecha en hora LOCAL con formato SQL (toISOString la correría 6 h a UTC y
+// mysql2 regresa DATE/DATETIME como objetos Date que no deben ir a String())
+const p2 = (n: number) => String(n).padStart(2, '0');
+const fechaSqlLocal = (d: Date): string =>
+    `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+const fechaTexto = (v: unknown): string =>
+    v instanceof Date ? fechaSqlLocal(v) : String(v ?? '').split('.')[0];
+
 export interface ExistenciaArticulo {
     articulo: {
         codigoInterno: number;
@@ -107,7 +115,7 @@ export async function calcularExistencia(
         // Sin corte ni ajuste: solo movimientos de los últimos 30 días sobre base 0
         corte = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     }
-    const desde = corte.toISOString().slice(0, 19).replace('T', ' ');
+    const desde = fechaSqlLocal(corte);
 
     // Familia recursiva del maestro: variantes y nietas con el Factor
     // acumulado y su nivel (p.ej. maestro → 076 → 1076), como el Java
@@ -130,16 +138,32 @@ export async function calcularExistencia(
     const advertencias: string[] = [];
 
     // Suma de un origen de movimientos; las tablas opcionales (POS, CEDIS,
-    // SAP) pueden no existir en la tienda: se reportan y se toman como 0
-    const suma = async (nombre: string, sql: string, params: (string | number)[]): Promise<number> => {
-        try {
-            const rows = (await tiendaQuery(idTienda, sql, params)) as Row[];
+    // SAP) pueden no existir en la tienda: se reportan y se toman como 0.
+    // Esquema viejo (bodegas): si falta una columna (errno 1054) se intenta
+    // sqlViejo, o se regresa 0 en silencio si el concepto no existe ahí.
+    const suma = async (
+        nombre: string,
+        sql: string,
+        params: (string | number)[],
+        opciones?: { sqlViejo?: string; omitirSiFaltaColumna?: boolean }
+    ): Promise<number> => {
+        const sumar = (rows: Row[]) => {
             let total = 0;
             for (const r of rows ?? []) {
                 total += num(r.Mov) / (factores.get(num(r.CodigoInterno)) ?? 1);
             }
             return total;
-        } catch {
+        };
+        try {
+            return sumar((await tiendaQuery(idTienda, sql, params)) as Row[]);
+        } catch (error) {
+            const faltaColumna = (error as { errno?: number }).errno === 1054;
+            if (faltaColumna && opciones?.sqlViejo) {
+                try {
+                    return sumar((await tiendaQuery(idTienda, opciones.sqlViejo, params)) as Row[]);
+                } catch { /* cae a la advertencia */ }
+            }
+            if (faltaColumna && opciones?.omitirSiFaltaColumna) return 0;
             advertencias.push(nombre);
             return 0;
         }
@@ -161,7 +185,22 @@ export async function calcularExistencia(
             WHERE B.Status = 0 AND B.Devolucion = 0 AND B.FechaRecibo >= ? AND A.IdTienda = ?
               AND A.CodigoInterno IN (${marcas})
             GROUP BY A.CodigoInterno
-        `, [desde, idTienda, ...codigos]),
+        `, [desde, idTienda, ...codigos], {
+            // Esquema viejo (bodegas): tblReciboMovil sin columna Devolucion —
+            // todos los recibos son entradas
+            sqlViejo: `
+                SELECT A.CodigoInterno, SUM(CASE WHEN D.IdTipo = 2 AND RecGranel > 0 THEN RecGranel
+                    ELSE CASE WHEN RecGranel = 0 AND D.TipoOperacion <> 1 THEN Rec * A.CantidadCompra
+                              WHEN D.TipoOperacion = 1 THEN Rec
+                              ELSE RecGranel / A.CantidadCompra END END) AS Mov
+                FROM tblDetalleReciboMovil A
+                INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
+                INNER JOIN tblArticulos D ON A.CodigoInterno = D.CodigoInterno
+                WHERE B.Status = 0 AND B.FechaRecibo >= ? AND A.IdTienda = ?
+                  AND A.CodigoInterno IN (${marcas})
+                GROUP BY A.CodigoInterno
+            `,
+        }),
         suma('devoluciones de recibo', `
             SELECT A.CodigoInterno, SUM(Rec) AS Mov
             FROM tblDetalleReciboMovil A
@@ -169,7 +208,10 @@ export async function calcularExistencia(
             WHERE B.Status = 0 AND B.Devolucion = 1 AND RecGranel = 0 AND B.FechaRecibo >= ?
               AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             GROUP BY A.CodigoInterno
-        `, [desde, idTienda, ...codigos]),
+        `, [desde, idTienda, ...codigos], {
+            // Esquema viejo: sin Devolucion no existen devoluciones de recibo
+            omitirSiFaltaColumna: true,
+        }),
         suma('transferencias de entrada', `
             SELECT A.CodigoInterno, SUM(A.Mov) AS Mov
             FROM tblDetalleTransferenciasSalidas A
@@ -279,7 +321,7 @@ export async function calcularExistencia(
             base,
             origen: baseOrigen,
             desde,
-            snapshotFecha: snapshot?.Fecha ? String(snapshot.Fecha).slice(0, 10) : null,
+            snapshotFecha: snapshot?.Fecha ? fechaTexto(snapshot.Fecha).slice(0, 10) : null,
         },
         desdeElCorte: { entradas, salidas },
         variantesKit: codigos.length - 1,
