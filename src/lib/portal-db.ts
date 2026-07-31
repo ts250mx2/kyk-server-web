@@ -124,12 +124,42 @@ const TABLAS = [
         PRIMARY KEY (IdDocumento, Parte)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
     `CREATE TABLE IF NOT EXISTS chat_lecturas (
-        Canal VARCHAR(30) NOT NULL,
+        Canal VARCHAR(100) NOT NULL,
         CodigoBarras VARCHAR(45) NOT NULL,
         UltimoLeido INT NOT NULL DEFAULT 0,
         FechaAct DATETIME NOT NULL,
         PRIMARY KEY (Canal, CodigoBarras)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS portal_presencia (
+        CodigoBarras VARCHAR(45) NOT NULL PRIMARY KEY,
+        Nombre VARCHAR(100) NOT NULL DEFAULT '',
+        IdTienda INT NOT NULL DEFAULT 0,
+        UltimaVez DATETIME NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS evaluaciones (
+        IdEvaluacion INT AUTO_INCREMENT PRIMARY KEY,
+        IdDocumento INT NOT NULL,
+        Titulo VARCHAR(200) NOT NULL DEFAULT '',
+        Preguntas MEDIUMTEXT NOT NULL,
+        CreadaPor VARCHAR(45) NOT NULL DEFAULT '',
+        FechaCreacion DATETIME NOT NULL,
+        Status TINYINT NOT NULL DEFAULT 0,
+        KEY idx_documento (IdDocumento)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS evaluaciones_resultados (
+        IdResultado INT AUTO_INCREMENT PRIMARY KEY,
+        IdEvaluacion INT NOT NULL,
+        IdTienda INT NOT NULL DEFAULT 0,
+        CodigoBarras VARCHAR(45) NOT NULL,
+        Nombre VARCHAR(100) NOT NULL DEFAULT '',
+        Respuestas TEXT NOT NULL,
+        Aciertos INT NOT NULL DEFAULT 0,
+        TotalPreguntas INT NOT NULL DEFAULT 0,
+        Calificacion DECIMAL(5,2) NOT NULL DEFAULT 0,
+        FechaFin DATETIME NOT NULL,
+        KEY idx_eval (IdEvaluacion),
+        KEY idx_usuario (CodigoBarras)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
 // Migraciones aditivas sobre instalaciones existentes; el error 1060
@@ -144,6 +174,9 @@ const MIGRACIONES = [
     // Emojis en el chat (🧀📦😀 son de 4 bytes): utf8 de MySQL solo guarda 3 y
     // los volvía "?". Idempotente: re-convertir una tabla ya en utf8mb4 no falla.
     `ALTER TABLE chat_mensajes CONVERT TO CHARACTER SET utf8mb4`,
+    // Chats directos: el canal dm-<codigoA>-<codigoB> necesita más de 30 chars
+    `ALTER TABLE chat_mensajes MODIFY Canal VARCHAR(100) NOT NULL`,
+    `ALTER TABLE chat_lecturas MODIFY Canal VARCHAR(100) NOT NULL`,
 ];
 
 let esquemaListo: Promise<void> | null = null;

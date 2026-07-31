@@ -17,6 +17,14 @@ export async function GET() {
     }
 
     try {
+        // Presencia portal-wide: la campana consulta cada minuto desde cualquier
+        // página, así el directorio del chat sabe quién está conectado
+        await portalQuery(`
+            INSERT INTO portal_presencia (CodigoBarras, Nombre, IdTienda, UltimaVez)
+            VALUES (?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE Nombre = VALUES(Nombre), IdTienda = VALUES(IdTienda), UltimaVez = NOW()
+        `, [session.codigobarras, session.name, session.idTienda]).catch(() => { /* no crítica */ });
+
         const rows = await portalQuery(`
             SELECT COUNT(*) AS Total, COALESCE(SUM(C.Prioridad = 1), 0) AS Urgentes
             FROM comunicados C

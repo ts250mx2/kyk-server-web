@@ -262,6 +262,23 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   IdMensaje) y badges cada 15 s — robusto ante los cortes de VPN nocturnos; SSE queda como
   mejora futura. Burbujas con nombre y tienda del emisor, Enter envía, Shift+Enter salto.
   `chat_mensajes` migrada a **utf8mb4** para que los emojis (4 bytes) no se vuelvan "?".
+  **Chats directos** 1 a 1 entre usuarios del portal: sección "Directos" con botón **+** que
+  abre el directorio (usuarios registrados por presencia, con búsqueda e indicador **en
+  línea**); canal lógico `dm-<codigoA>-<codigoB>` (códigos ordenados, columna Canal ampliada a
+  100), solo los dos participantes pueden leerlo/escribirlo, con badges de no leídos y fotos
+  como cualquier canal. La **presencia** (`portal_presencia`) se refresca desde la campana del
+  header (≈1 min, portal-wide) y el poll de canales del chat (15 s); "en línea" = activo hace
+  < 2 min.
+  **Evaluaciones 🎓** (canal fijo del chat): cuestionarios de capacitación por documento —
+  eliges un documento del portal y la IA (Sonnet) genera 5 preguntas de opción múltiple (4
+  opciones) a partir de su texto extraído; las respuestas correctas viven SOLO en el servidor
+  (`evaluaciones.Preguntas`), el navegador recibe únicamente preguntas y opciones y la
+  calificación se hace en el servidor (`/api/evaluaciones/[id]/responder`), que devuelve el
+  repaso por pregunta (correcta + explicación citando el documento). Cada intento queda en
+  `evaluaciones_resultados`; el usuario ve su mejor calificación e intentos, y oficina ve
+  quién la presentó (conteo, promedio y detalle por persona/tienda) y puede **regenerar** el
+  cuestionario. La generación es perezosa: el primer "Presentar" de un documento la crea y las
+  siguientes personas reutilizan el mismo cuestionario.
   **Bot de existencias**: en los canales de sucursal (tienda↔oficina), si un mensaje pide
   existencias ("existencias de...", "stock", "cuánto queda de..."), KESITO 🧀 responde en el
   mismo canal con la existencia **de la tienda del canal** (no la del que pregunta): extrae el
