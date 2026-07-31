@@ -5,7 +5,8 @@ import {
     Loader2, AlertTriangle, X, Plus, Search, RefreshCw, Download,
     FolderOpen, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon,
     Trash2, Eye, Upload, Folder, FolderPlus, ArrowLeft, ChevronRight, Check,
-    FileArchive, FileVideo, FileAudio, FileCode, Presentation, Info, FolderInput, History
+    FileArchive, FileVideo, FileAudio, FileCode, Presentation, Info, FolderInput, History,
+    MessageCircleQuestion
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
@@ -27,6 +28,7 @@ interface Documento {
 }
 
 interface Carpeta { idCarpeta: number; nombre: string; idPadre: number; documentos: number }
+interface PreguntaAdian { idPregunta: number; tienda: string; usuario: string; pregunta: string; fecha: string }
 
 // Cadena de carpetas desde la raíz hasta la indicada (breadcrumb y rutas)
 const rutaHasta = (carpetas: Carpeta[], id: number): Carpeta[] => {
@@ -79,6 +81,10 @@ export default function DocumentosPage() {
     const [propiedades, setPropiedades] = useState<Documento | null>(null)
     const [moverDoc, setMoverDoc] = useState<Documento | null>(null)
     const [vistaPrevia, setVistaPrevia] = useState<Documento | null>(null)
+
+    // Bitácora de preguntas que A.D.iA.N no pudo responder (solo oficina)
+    const [preguntas, setPreguntas] = useState<PreguntaAdian[]>([])
+    const [preguntasAbierto, setPreguntasAbierto] = useState(false)
     const [arrastrandoPanel, setArrastrandoPanel] = useState(false)
     const [carpetaHover, setCarpetaHover] = useState(0)
 
@@ -166,6 +172,25 @@ export default function DocumentosPage() {
     // Clic en un archivo: SIEMPRE vista previa. La descarga (solo oficina)
     // va únicamente por el menú del clic derecho.
     const abrirDocumento = (d: Documento) => setVistaPrevia(d)
+
+    useEffect(() => {
+        if (rol !== "oficina") return
+        fetch("/api/documentos/preguntas")
+            .then(r => r.json())
+            .then(d => { if (Array.isArray(d.preguntas)) setPreguntas(d.preguntas) })
+            .catch(() => { /* la bitácora no bloquea la página */ })
+    }, [rol])
+
+    const atenderPregunta = async (idPregunta: number) => {
+        try {
+            const res = await fetch("/api/documentos/preguntas", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ idPregunta }),
+            })
+            if (res.ok) setPreguntas(prev => prev.filter(p => p.idPregunta !== idPregunta))
+        } catch { /* se reintenta al reabrir el modal */ }
+    }
 
     // Mover documento a otra carpeta (arrastrándolo o desde el menú contextual)
     const mover = async (idDocumento: number, idCarpeta: number) => {
@@ -338,12 +363,31 @@ export default function DocumentosPage() {
                         <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
                     </button>
                     {rol === "oficina" && (
-                        <button
-                            onClick={abrirSubir}
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
-                        >
-                            <Upload className="h-4 w-4" /> Subir Documento
-                        </button>
+                        <>
+                            <button
+                                onClick={() => setPreguntasAbierto(true)}
+                                className={cn(
+                                    "relative p-2.5 rounded-xl border transition-all",
+                                    preguntas.length > 0
+                                        ? "bg-violet-500/10 border-violet-500/30 text-violet-300"
+                                        : "bg-white/[0.05] border-white/10 text-slate-400 hover:text-violet-300 hover:border-violet-500/30"
+                                )}
+                                title="Preguntas que A.D.iA.N no pudo responder con los documentos"
+                            >
+                                <MessageCircleQuestion className="h-4 w-4" />
+                                {preguntas.length > 0 && (
+                                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-violet-500 text-white text-[9px] font-black flex items-center justify-center border-2 border-[#060a12]">
+                                        {preguntas.length > 99 ? "99+" : preguntas.length}
+                                    </span>
+                                )}
+                            </button>
+                            <button
+                                onClick={abrirSubir}
+                                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
+                            >
+                                <Upload className="h-4 w-4" /> Subir Documento
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -905,6 +949,62 @@ export default function DocumentosPage() {
                         ]
                     })()}
                 />
+            )}
+
+            {/* Bitácora de preguntas sin respuesta de A.D.iA.N (oficina) */}
+            {preguntasAbierto && (
+                <div
+                    className="fixed inset-0 z-[85] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setPreguntasAbierto(false)}
+                >
+                    <div
+                        className="w-full max-w-2xl max-h-[85vh] bg-[#0d1320] border border-white/10 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 border-b border-white/10 bg-violet-500/[0.06] flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-[15px] font-black text-white flex items-center gap-2">
+                                    <MessageCircleQuestion className="h-4 w-4 text-violet-300" /> Preguntas sin respuesta
+                                </h3>
+                                <p className="text-[11px] font-bold text-slate-500 mt-1">
+                                    Lo que A.D.iA.N no encontró en los documentos — pistas de qué falta subir
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setPreguntasAbierto(false)}
+                                className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+                        <div className="overflow-auto flex-1 divide-y divide-white/[0.04]">
+                            {preguntas.length === 0 ? (
+                                <div className="py-16 flex flex-col items-center gap-3">
+                                    <MessageCircleQuestion className="h-8 w-8 text-slate-700" />
+                                    <p className="text-[12px] font-bold text-slate-600 uppercase tracking-widest">
+                                        Sin preguntas pendientes — los documentos van al corriente
+                                    </p>
+                                </div>
+                            ) : preguntas.map(p => (
+                                <div key={p.idPregunta} className="px-6 py-3.5 flex items-start gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[13px] font-bold text-slate-100">{p.pregunta}</p>
+                                        <p className="text-[11px] font-bold text-slate-500 mt-1">
+                                            {p.tienda} · {p.usuario} · {fmtFechaHora(p.fecha)}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => atenderPregunta(p.idPregunta)}
+                                        className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/30 font-black text-[10px] uppercase tracking-widest transition-all"
+                                        title="Marcar como atendida (p. ej. ya subiste el documento)"
+                                    >
+                                        <Check className="h-3.5 w-3.5" /> Atendida
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Vista previa del documento */}

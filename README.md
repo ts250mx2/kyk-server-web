@@ -275,6 +275,11 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   se persiste en `documentos_texto` en partes de 3k caracteres
   ([src/lib/documentos-texto.ts](src/lib/documentos-texto.ts)). Límite de subida configurable
   con `DOCUMENTOS_MAX_MB` (default 50; el `max_allowed_packet` del central debe superarlo).
+  **Bitácora de retroalimentación**: cuando ningún documento responde la pregunta, el agente
+  la registra en `adian_preguntas` (herramienta `registrar_pregunta_sin_respuesta`) y oficina
+  la revisa en Documentos (botón 💬 con badge, modal con marcar-atendida) para saber qué
+  documento falta subir. Tono de capacitador, citas textuales y link "📄 Abrir" a la vista
+  inline (en PDFs con `#page=N` gracias a los marcadores [Página N] de la extracción).
   Mismo protocolo streaming NDJSON, rate limit y prompt caching que Kesito; el panel de ambos
   agentes es el componente genérico [src/components/dashboard/AgenteChat.tsx](src/components/dashboard/AgenteChat.tsx)
   (acentos ámbar/violeta, conversación en sessionStorage por tienda+usuario).

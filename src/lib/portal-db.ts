@@ -106,6 +106,17 @@ const TABLAS = [
         FechaEnvio DATETIME NOT NULL,
         KEY idx_canal (Canal, IdMensaje)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS adian_preguntas (
+        IdPregunta INT AUTO_INCREMENT PRIMARY KEY,
+        IdTienda INT NOT NULL DEFAULT 0,
+        Tienda VARCHAR(100) NOT NULL DEFAULT '',
+        CodigoBarras VARCHAR(45) NOT NULL DEFAULT '',
+        Nombre VARCHAR(100) NOT NULL DEFAULT '',
+        Pregunta TEXT NOT NULL,
+        Fecha DATETIME NOT NULL,
+        Status TINYINT NOT NULL DEFAULT 0,
+        KEY idx_status_fecha (Status, Fecha)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
     `CREATE TABLE IF NOT EXISTS documentos_texto (
         IdDocumento INT NOT NULL,
         Parte INT NOT NULL,

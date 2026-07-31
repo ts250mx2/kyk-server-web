@@ -37,6 +37,7 @@ const ETIQUETA_HERRAMIENTA: Record<string, string> = {
     listar_documentos: 'la lista de documentos',
     buscar_en_documentos: 'la búsqueda en los documentos',
     leer_documento: 'el contenido del documento',
+    registrar_pregunta_sin_respuesta: 'el registro de la pregunta',
 };
 
 const HERRAMIENTAS: Anthropic.Tool[] = [
@@ -71,6 +72,17 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
                 pagina: { type: 'number', description: 'Página de texto a leer (1-indexada, default 1)' },
             },
             required: ['idDocumento'],
+        },
+    },
+    {
+        name: 'registrar_pregunta_sin_respuesta',
+        description: 'Registra en la bitácora de oficina una pregunta que NINGÚN documento del portal pudo responder, para que sepan qué documento falta subir. Úsala solo después de haber buscado y concluido que no hay respuesta.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                pregunta: { type: 'string', description: 'La pregunta del usuario, tal como la planteó' },
+            },
+            required: ['pregunta'],
         },
         // Marca el final del prefijo cacheable (herramientas + system)
         cache_control: { type: 'ephemeral' },
@@ -226,11 +238,22 @@ export async function POST(request: Request) {
         });
     };
 
+    const registrarPregunta = async (textoPregunta: string): Promise<string> => {
+        const limpio = textoPregunta.trim().slice(0, 1_000);
+        if (!limpio) return JSON.stringify({ error: 'Pregunta vacía' });
+        await portalQuery(`
+            INSERT INTO adian_preguntas (IdTienda, Tienda, CodigoBarras, Nombre, Pregunta, Fecha, Status)
+            VALUES (?, ?, ?, ?, ?, NOW(), 0)
+        `, [session.idTienda, session.tienda, session.codigobarras, session.name, limpio]);
+        return JSON.stringify({ registrada: true, mensaje: 'La pregunta quedó en la bitácora de oficina' });
+    };
+
     const ejecutarHerramienta = async (nombre: string, entrada: Record<string, unknown>): Promise<string> => {
         try {
             if (nombre === 'listar_documentos') return await listarDocumentos(String(entrada.busqueda ?? ''));
             if (nombre === 'buscar_en_documentos') return await buscarDocumentos(String(entrada.termino ?? ''));
             if (nombre === 'leer_documento') return await leerDocumento(Number(entrada.idDocumento), Number(entrada.pagina) || 1);
+            if (nombre === 'registrar_pregunta_sin_respuesta') return await registrarPregunta(String(entrada.pregunta ?? ''));
             return JSON.stringify({ error: 'Herramienta desconocida' });
         } catch (error) {
             console.error(`Error en herramienta ${nombre} de A.D.iA.N:`, error);
@@ -254,7 +277,7 @@ CÓMO RESPONDER:
 - Los marcadores [Página N] del texto son solo para ubicar: no los incluyas dentro de las citas.
 
 Reglas:
-- NUNCA inventes contenido: si ningún documento visible contiene la respuesta, dilo con calidez y sugiere qué documento haría falta subir.
+- NUNCA inventes contenido: si después de buscar concluyes que ningún documento visible contiene la respuesta, regístrala con registrar_pregunta_sin_respuesta y dile al usuario con calidez que la anotaste para que oficina sepa qué documento falta subir.
 - Si preguntan por datos operativos de la tienda (precios, ventas, inventario) o temas generales, aclara amablemente que tú solo manejas los documentos del portal y que para datos de la tienda está el agente Kesito.
 - Español siempre, con markdown ligero.`;
 
