@@ -226,7 +226,11 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   guardan **en la base de datos** (`documentos.Contenido LONGBLOB` en BDKYKPortal, migración
   aditiva; los subidos antes se leen de disco como respaldo — el `max_allowed_packet` del MySQL
   central debe superar los 25 MB). Las tiendas **solo visualizan** (vista previa inline; el API
-  rechaza la descarga como archivo con 403) — la descarga queda reservada al rol oficina.
+  rechaza la descarga como archivo con 403) — la descarga queda reservada al rol oficina y solo
+  desde el menú del clic derecho. La vista previa cubre PDF/imagen/video/audio/texto (visores
+  del navegador), **Word (.docx)** con `docx-preview` y **Excel/CSV** con SheetJS (tabla con
+  pestañas por hoja, tope 500 filas) — todo renderizado localmente, sin servicios externos;
+  PowerPoint y .doc viejos quedan sin vista.
   Repositorio de archivos con **explorador de carpetas al estilo Windows**, con **subcarpetas** (carpetas
   dentro de carpetas, columna `IdCarpetaPadre` con migración aditiva): cuadrícula de carpetas
   con conteo de subcarpetas y documentos, tile "Nueva Carpeta" con captura inline (Enter crea,

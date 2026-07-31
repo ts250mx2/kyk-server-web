@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect } from "react"
-import { X, ExternalLink, FileQuestion } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { X, ExternalLink, FileQuestion, Loader2, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
 
@@ -63,15 +63,166 @@ export function MenuContextual({ x, y, opciones, onCerrar }: {
     )
 }
 
-// Tipos que el navegador puede mostrar en la vista previa
-export function tipoVistaPrevia(nombreArchivo: string, mime: string): "pdf" | "imagen" | "video" | "audio" | "texto" | null {
+// Tipos con vista previa: los nativos del navegador (PDF, imagen, video,
+// audio, texto) más Word (.docx vía docx-preview) y Excel/CSV (vía SheetJS)
+export function tipoVistaPrevia(
+    nombreArchivo: string,
+    mime: string
+): "pdf" | "imagen" | "video" | "audio" | "texto" | "word" | "excel" | null {
     const ext = nombreArchivo.split(".").pop()?.toLowerCase() ?? ""
     if (mime.includes("pdf") || ext === "pdf") return "pdf"
     if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext)) return "imagen"
     if (mime.startsWith("video/") || ["mp4", "webm", "mov"].includes(ext)) return "video"
     if (mime.startsWith("audio/") || ["mp3", "wav", "ogg"].includes(ext)) return "audio"
-    if (["txt", "log", "csv", "json", "xml", "html"].includes(ext)) return "texto"
+    if (ext === "docx" || mime.includes("wordprocessingml")) return "word"
+    if (["xlsx", "xls", "xlsm", "csv"].includes(ext) || mime.includes("sheet") || mime.includes("excel")) return "excel"
+    if (["txt", "log", "json", "xml", "html"].includes(ext)) return "texto"
     return null
+}
+
+// Word (.docx): docx-preview renderiza el documento en el navegador, sin
+// mandarlo a servicios externos (los .doc viejos no tienen soporte)
+function VistaWord({ url }: { url: string }) {
+    const contenedorRef = useRef<HTMLDivElement>(null)
+    const [cargando, setCargando] = useState(true)
+    const [error, setError] = useState("")
+
+    useEffect(() => {
+        let activo = true
+        ;(async () => {
+            try {
+                const [res, docx] = await Promise.all([fetch(url), import("docx-preview")])
+                if (!res.ok) throw new Error("No fue posible obtener el documento")
+                const blob = await res.blob()
+                if (!activo || !contenedorRef.current) return
+                contenedorRef.current.innerHTML = ""
+                await docx.renderAsync(blob, contenedorRef.current, undefined, {
+                    inWrapper: true,
+                    ignoreLastRenderedPageBreak: true,
+                })
+            } catch {
+                if (activo) setError("No fue posible mostrar el documento de Word")
+            } finally {
+                if (activo) setCargando(false)
+            }
+        })()
+        return () => { activo = false }
+    }, [url])
+
+    return (
+        <div className="w-full h-full overflow-auto rounded-xl bg-white relative">
+            {cargando && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white">
+                    <Loader2 className="h-7 w-7 text-emerald-500 animate-spin" />
+                </div>
+            )}
+            {error && (
+                <div className="p-6 flex items-center gap-2 text-rose-600 text-sm font-bold">
+                    <AlertTriangle className="h-4 w-4" /> {error}
+                </div>
+            )}
+            <div ref={contenedorRef} />
+        </div>
+    )
+}
+
+const MAX_FILAS_HOJA = 500
+
+// Excel / CSV: SheetJS (ya usado para exportar) lee el archivo y se pinta
+// como tabla, con pestañas por hoja
+function VistaExcel({ url }: { url: string }) {
+    const [hojas, setHojas] = useState<{ nombre: string; filas: (string | number)[][]; truncada: boolean }[]>([])
+    const [hojaActiva, setHojaActiva] = useState(0)
+    const [cargando, setCargando] = useState(true)
+    const [error, setError] = useState("")
+
+    useEffect(() => {
+        let activo = true
+        ;(async () => {
+            try {
+                const [res, XLSX] = await Promise.all([fetch(url), import("xlsx-js-style")])
+                if (!res.ok) throw new Error("No fue posible obtener el archivo")
+                const buffer = await res.arrayBuffer()
+                const libro = XLSX.read(buffer, { type: "array" })
+                const datos = libro.SheetNames.map(nombre => {
+                    const filas = XLSX.utils.sheet_to_json(libro.Sheets[nombre], { header: 1, defval: "" }) as (string | number)[][]
+                    return { nombre, filas: filas.slice(0, MAX_FILAS_HOJA), truncada: filas.length > MAX_FILAS_HOJA }
+                })
+                if (activo) setHojas(datos)
+            } catch {
+                if (activo) setError("No fue posible mostrar la hoja de cálculo")
+            } finally {
+                if (activo) setCargando(false)
+            }
+        })()
+        return () => { activo = false }
+    }, [url])
+
+    if (cargando) {
+        return (
+            <div className="w-full h-full flex items-center justify-center">
+                <Loader2 className="h-7 w-7 text-emerald-400 animate-spin" />
+            </div>
+        )
+    }
+    if (error || hojas.length === 0) {
+        return (
+            <div className="p-6 flex items-center gap-2 text-rose-300 text-[12px] font-bold">
+                <AlertTriangle className="h-4 w-4" /> {error || "El archivo no tiene hojas"}
+            </div>
+        )
+    }
+
+    const hoja = hojas[Math.min(hojaActiva, hojas.length - 1)]
+    return (
+        <div className="w-full h-full flex flex-col gap-2">
+            {hojas.length > 1 && (
+                <div className="flex items-center gap-1 overflow-x-auto shrink-0">
+                    {hojas.map((h, i) => (
+                        <button
+                            key={h.nombre}
+                            onClick={() => setHojaActiva(i)}
+                            className={cn(
+                                "px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-all",
+                                i === hojaActiva
+                                    ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                                    : "text-slate-400 hover:text-white border border-transparent"
+                            )}
+                        >
+                            {h.nombre}
+                        </button>
+                    ))}
+                </div>
+            )}
+            <div className="flex-1 overflow-auto rounded-xl border border-white/10">
+                <table className="min-w-full border-collapse">
+                    <tbody>
+                        {hoja.filas.map((fila, i) => (
+                            <tr key={i} className={i === 0 ? "bg-white/[0.06]" : i % 2 === 1 ? "bg-white/[0.02]" : ""}>
+                                {fila.map((celda, j) => (
+                                    <td
+                                        key={j}
+                                        className={cn(
+                                            "px-3 py-1.5 border border-white/[0.06] whitespace-nowrap max-w-[300px] truncate",
+                                            i === 0 ? "text-[11px] font-black text-emerald-300 uppercase" : "text-[12px] font-medium text-slate-200"
+                                        )}
+                                        title={String(celda)}
+                                    >
+                                        {String(celda)}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {hoja.truncada && (
+                <p className="text-[10px] font-black text-amber-300 uppercase tracking-widest shrink-0">
+                    Mostrando las primeras {fmtInt(MAX_FILAS_HOJA)} filas de la hoja
+                </p>
+            )}
+        </div>
+    )
 }
 
 export interface DocumentoVista {
@@ -105,7 +256,8 @@ export function VistaPreviaModal({ doc, permitirDescarga = false, onClose }: {
         >
             <div
                 className={cn(
-                    "w-full max-w-5xl bg-[#0d1320] border border-white/10 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col",
+                    "w-full bg-[#0d1320] border border-white/10 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col",
+                    tipo === "excel" || tipo === "word" ? "max-w-6xl" : "max-w-5xl",
                     tipo === "audio" || tipo === null ? "max-h-[60vh]" : "h-[88vh]"
                 )}
                 onClick={e => e.stopPropagation()}
@@ -146,6 +298,10 @@ export function VistaPreviaModal({ doc, permitirDescarga = false, onClose }: {
                         <div className="py-10 flex justify-center">
                             <audio src={urlVista} controls className="w-full max-w-xl" />
                         </div>
+                    ) : tipo === "word" ? (
+                        <VistaWord url={urlVista} />
+                    ) : tipo === "excel" ? (
+                        <VistaExcel url={urlVista} />
                     ) : (
                         <div className="py-12 flex flex-col items-center gap-4 text-center">
                             <FileQuestion className="h-10 w-10 text-slate-600" />
