@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt, fmtFechaHora, fmtPct } from "@/lib/format"
 import { exportarPdf, exportarExcel, obtenerTiendaSesion, sufijoArchivo } from "@/lib/export"
+import { FotoProducto } from "@/components/dashboard/FotoProducto"
 
 const PAGE_SIZE = 50
 
@@ -103,8 +104,17 @@ export default function ArticulosPage() {
     const [tab, setTab] = useState<"venta" | "compra">("venta")
     const [provSel, setProvSel] = useState(0)
     const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null)
+    // Rol oficina: habilita administrar la foto del producto (la API lo re-valida)
+    const [oficina, setOficina] = useState(false)
 
     const barcodeRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        fetch("/api/auth/me")
+            .then(r => r.json())
+            .then(d => setOficina(d.oficina === true))
+            .catch(() => { /* sin rol, sin controles de foto */ })
+    }, [])
 
     const cargarLista = useCallback(async (f: Filtros, pagina: number, estado: EstadoFiltro) => {
         setLoadingList(true)
@@ -564,11 +574,19 @@ export default function ArticulosPage() {
                             {/* Encabezado del artículo */}
                             <div className="px-5 py-4 border-b border-white/[0.06]">
                                 <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <h3 className="text-[15px] font-black text-white leading-tight">{art.descripcion}</h3>
-                                        <p className="text-[11px] font-bold text-slate-500 mt-1 flex items-center gap-2">
-                                            <ScanBarcode className="h-3.5 w-3.5" /> {art.codigoBarras}
-                                        </p>
+                                    <div className="flex items-start gap-3 min-w-0">
+                                        <FotoProducto
+                                            key={art.codigoBarras}
+                                            codigoBarras={art.codigoBarras}
+                                            descripcion={art.descripcion}
+                                            esOficina={oficina}
+                                        />
+                                        <div className="min-w-0">
+                                            <h3 className="text-[15px] font-black text-white leading-tight">{art.descripcion}</h3>
+                                            <p className="text-[11px] font-bold text-slate-500 mt-1 flex items-center gap-2">
+                                                <ScanBarcode className="h-3.5 w-3.5" /> {art.codigoBarras}
+                                            </p>
+                                        </div>
                                     </div>
                                     <div className="shrink-0 flex flex-col items-end gap-1">
                                         <span className="text-[10px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-500/25 rounded-md px-2 py-1 uppercase">

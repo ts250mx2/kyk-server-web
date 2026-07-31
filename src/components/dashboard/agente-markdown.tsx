@@ -28,6 +28,22 @@ export function crearComponentesMarkdown(acento: "ambar" | "violeta"): Component
                 {children}
             </a>
         ),
+        // Miniaturas de producto: SOLO imágenes servidas por el propio portal
+        // (/api/...); si el producto no tiene foto, la imagen rota se oculta sola
+        img: ({ src, alt }) => {
+            const ruta = typeof src === "string" ? src : ""
+            if (!ruta.startsWith("/api/")) return null
+            return (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                    src={ruta}
+                    alt={alt ?? ""}
+                    loading="lazy"
+                    className="inline-block max-h-24 max-w-[8rem] rounded-lg border border-white/10 bg-white/[0.04] my-1 mr-2 align-top object-contain"
+                    onError={e => { (e.target as HTMLImageElement).style.display = "none" }}
+                />
+            )
+        },
         h1: ({ children }) => <p className="text-[13px] font-black text-white uppercase tracking-wide">{children}</p>,
         h2: ({ children }) => <p className="text-[13px] font-black text-white uppercase tracking-wide">{children}</p>,
         h3: ({ children }) => <p className="text-[13px] font-black text-white">{children}</p>,

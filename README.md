@@ -346,6 +346,22 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   ([agente-markdown.tsx](src/components/dashboard/agente-markdown.tsx)); la consola es
   [VozJarvis.tsx](src/components/dashboard/VozJarvis.tsx).
 
+- **Imágenes de productos** (Precios y agentes): guardadas **en la base como base64**
+  (`articulos_imagenes`, sin archivos en disco) y resueltas en 3 capas por
+  [src/lib/imagenes-productos.ts](src/lib/imagenes-productos.ts): 1) caché en base (positiva, y
+  negativa con reintento a los 7 días), 2) **Open Food Facts por código de barras** (match
+  exacto, descarga perezosa la primera vez que alguien pide la imagen; los códigos internos ni
+  se consultan afuera), 3) **manual** (oficina). `GET /api/articulos/imagen/[codigo]` sirve el
+  binario con caché del navegador; `POST` (oficina) acepta archivo subido o una URL de
+  sugerencia (restringida a `images.openfoodfacts.org` — anti-SSRF); `DELETE` la quita. En el
+  detalle de **Precios** aparece la foto con controles de oficina (subir/buscar/quitar,
+  componente [FotoProducto](src/components/dashboard/FotoProducto.tsx));
+  `/api/articulos/imagen-sugerencias?busqueda=` busca candidatas **por descripción** en Open
+  Food Facts para que oficina elija (nunca se asigna sola una imagen por texto). KESITO incluye
+  la miniatura al hablar de artículos concretos (el markdown de agentes renderiza imágenes solo
+  de rutas `/api/` del propio portal; las rotas se ocultan solas). `/api/auth/me` ahora regresa
+  `oficina` para mostrar/ocultar controles (la API siempre re-valida).
+
 - **Comunicación → Chat → canal Kesito**: fase 4 del portal — agente inteligente de la tienda,
   como canal fijo al inicio de la lista de canales del chat (no existe en BDKYKPortal; la
   conversación es local al navegador, en `sessionStorage`). El panel

@@ -146,6 +146,14 @@ const TABLAS = [
         Status TINYINT NOT NULL DEFAULT 0,
         KEY idx_documento (IdDocumento)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS articulos_imagenes (
+        CodigoBarras VARCHAR(45) NOT NULL PRIMARY KEY,
+        TipoMime VARCHAR(50) NOT NULL DEFAULT 'image/jpeg',
+        ImagenBase64 MEDIUMTEXT NULL,
+        Origen VARCHAR(20) NOT NULL DEFAULT 'off',
+        Estado TINYINT NOT NULL DEFAULT 0,
+        FechaAct DATETIME NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS evaluaciones_resultados (
         IdResultado INT AUTO_INCREMENT PRIMARY KEY,
         IdEvaluacion INT NOT NULL,

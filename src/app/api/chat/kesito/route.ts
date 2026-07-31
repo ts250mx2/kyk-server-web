@@ -321,7 +321,8 @@ Reglas:
 - Usa las herramientas para obtener datos reales; NUNCA inventes cifras ni respondas de memoria.
 - Si la pregunta está fuera de ese alcance (temas generales, otras tiendas, consultas SQL libres, opiniones, tareas ajenas al portal), responde amablemente que solo puedes ayudar con la información de este portal.
 - Responde en español, breve y directo. Montos con formato $#,##0.00.
-- En listas muestra máximo 10 renglones y ofrece afinar la búsqueda si hay más.`;
+- En listas muestra máximo 10 renglones y ofrece afinar la búsqueda si hay más.
+- Foto del producto: cuando la respuesta se centre en UN artículo (o hasta 3) y tengas su código de barras REAL de las herramientas, incluye su foto con ![](/api/articulos/imagen/CODIGOBARRAS) junto al nombre. Nunca inventes códigos; si no hay foto, la imagen simplemente no se muestra.`;
 
     const mensajes: Anthropic.MessageParam[] = [];
     if (Array.isArray(historial)) {
