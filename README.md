@@ -262,6 +262,16 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   IdMensaje) y badges cada 15 s — robusto ante los cortes de VPN nocturnos; SSE queda como
   mejora futura. Burbujas con nombre y tienda del emisor, Enter envía, Shift+Enter salto.
 
+- **Comunicación → Chat → canal A.D.iA.N** (📚, violeta): **Asistente Documental con IA** —
+  segundo agente del chat, responde SOLO leyendo los documentos subidos al portal (respetando
+  la visibilidad por tienda) y cita la fuente por nombre. Herramientas: `listar_documentos` y
+  `leer_documento` con extracción de texto **local** ([src/lib/extraer-texto.ts](src/lib/extraer-texto.ts)):
+  PDF con pdf-parse, Word (.docx) con mammoth, Excel/CSV con SheetJS y texto plano — nada sale
+  a servicios externos; texto cacheado en memoria y recortado a 18k caracteres por documento.
+  Mismo protocolo streaming NDJSON, rate limit y prompt caching que Kesito; el panel de ambos
+  agentes es el componente genérico [src/components/dashboard/AgenteChat.tsx](src/components/dashboard/AgenteChat.tsx)
+  (acentos ámbar/violeta, conversación en sessionStorage por tienda+usuario).
+
 - **Comunicación → Chat → canal Kesito**: fase 4 del portal — agente inteligente de la tienda,
   como canal fijo al inicio de la lista de canales del chat (no existe en BDKYKPortal; la
   conversación es local al navegador, en `sessionStorage`). El panel

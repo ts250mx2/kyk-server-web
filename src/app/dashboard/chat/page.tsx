@@ -5,6 +5,7 @@ import { Loader2, Send, ImagePlus, X, Hash, Store, MessageSquare, Sparkles } fro
 import { cn } from "@/lib/utils"
 import { fmtInt } from "@/lib/format"
 import { KesitoPanel } from "@/components/dashboard/KesitoPanel"
+import { AdianPanel } from "@/components/dashboard/AdianPanel"
 
 interface Canal { canal: string; nombre: string; noLeidos: number }
 interface Mensaje {
@@ -21,8 +22,10 @@ interface TiendaOption { IdTienda: number; Tienda: string }
 const POLL_MENSAJES_MS = 5_000
 const POLL_CANALES_MS = 15_000
 
-// Canal fijo del agente Kesito: no existe en BDKYKPortal, se atiende localmente
+// Canales fijos de agentes: no existen en BDKYKPortal, se atienden localmente
 const CANAL_KESITO = "kesito"
+const CANAL_ADIAN = "adian"
+const esCanalAgente = (canal: string) => canal === CANAL_KESITO || canal === CANAL_ADIAN
 
 const hora = (v: string) => {
     const d = new Date(v)
@@ -86,7 +89,7 @@ export default function ChatPage() {
                 setCanales(json.canales)
                 // Deep link: /dashboard/chat?canal=kesito (o cualquier canal propio)
                 const deseado = new URLSearchParams(window.location.search).get("canal")
-                const inicial = deseado && (deseado === CANAL_KESITO || json.canales.some((c: Canal) => c.canal === deseado))
+                const inicial = deseado && (esCanalAgente(deseado) || json.canales.some((c: Canal) => c.canal === deseado))
                     ? deseado
                     : ""
                 setCanalSel(prev => prev || inicial || json.canales[0]?.canal || "")
@@ -103,7 +106,7 @@ export default function ChatPage() {
 
     // Cambio de canal: carga inicial y polling incremental cada 5 s
     useEffect(() => {
-        if (!canalSel || canalSel === CANAL_KESITO) return
+        if (!canalSel || esCanalAgente(canalSel)) return
         canalRef.current = canalSel
         ultimoIdRef.current = 0
         setMensajes([])
@@ -204,6 +207,21 @@ export default function ChatPage() {
                         </span>
                         <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-400/70" />
                     </button>
+                    <button
+                        onClick={() => setCanalSel(CANAL_ADIAN)}
+                        className={cn(
+                            "flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-left transition-all shrink-0 lg:shrink lg:w-full",
+                            canalSel === CANAL_ADIAN
+                                ? "bg-violet-500/15 border border-violet-500/30 text-violet-300"
+                                : "text-slate-400 hover:bg-white/[0.05] hover:text-white border border-transparent"
+                        )}
+                    >
+                        <span className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm leading-none" aria-hidden>📚</span>
+                            <span className="text-[12px] font-black truncate">A.D.iA.N</span>
+                        </span>
+                        <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-400/70" />
+                    </button>
                     {canales.map(c => (
                         <button
                             key={c.canal}
@@ -231,10 +249,15 @@ export default function ChatPage() {
                 </div>
             </div>
 
-            {/* Conversación: el canal Kesito se atiende con el agente, el resto con BDKYKPortal */}
-            {canalSel === CANAL_KESITO ? (
+            {/* Conversación: los canales de agentes (Kesito, A.D.iA.N) se atienden
+                localmente; el resto con BDKYKPortal */}
+            {esCanalAgente(canalSel) ? (
                 claveKesito ? (
-                    <KesitoPanel key={claveKesito} claveSesion={claveKesito} />
+                    canalSel === CANAL_KESITO ? (
+                        <KesitoPanel key={`kesito-${claveKesito}`} claveSesion={claveKesito} />
+                    ) : (
+                        <AdianPanel key={`adian-${claveKesito}`} claveSesion={claveKesito} />
+                    )
                 ) : (
                     <div className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl flex items-center justify-center">
                         <Loader2 className="h-7 w-7 text-amber-400 animate-spin" />
