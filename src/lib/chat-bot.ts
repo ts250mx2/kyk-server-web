@@ -107,21 +107,30 @@ async function publicarEnCanal(canal: string, texto: string): Promise<void> {
 }
 
 /** Responde en el canal con la existencia del producto pedido, calculada
- *  sobre la tienda del canal. Pensado para correr sin await (fire-and-forget). */
-export async function responderExistenciasEnCanal(canal: string, mensaje: string): Promise<void> {
+ *  sobre la tienda del canal, dirigiéndose a quien preguntó (en un canal con
+ *  varias personas queda claro qué pregunta responde). Corre sin await. */
+export async function responderExistenciasEnCanal(
+    canal: string,
+    mensaje: string,
+    preguntadoPor = ''
+): Promise<void> {
     const idTienda = Number(canal.slice('tienda-'.length));
     if (!Number.isInteger(idTienda) || idTienda <= 0) return;
+
+    // Solo el primer nombre para dirigirse con naturalidad
+    const nombre = preguntadoPor.trim().split(/\s+/)[0] ?? '';
+    const para = nombre ? `${nombre}, ` : '';
 
     try {
         const producto = await extraerProducto(mensaje);
         if (!producto) {
-            await publicarEnCanal(canal, '📦 ¿De qué producto quieres la existencia? Dime el nombre o el código de barras, p. ej. "existencias de coca cola 600".');
+            await publicarEnCanal(canal, `📦 ${para}¿de qué producto quieres la existencia? Dime el nombre o el código de barras, p. ej. "existencias de coca cola 600".`);
             return;
         }
 
         const articulos = await buscarArticulos(idTienda, producto);
         if (articulos.length === 0) {
-            await publicarEnCanal(canal, `📦 No encontré "${producto}" en el catálogo de esta tienda. Intenta con otro nombre o con el código de barras.`);
+            await publicarEnCanal(canal, `📦 ${para}no encontré "${producto}" en el catálogo de esta tienda. Intenta con otro nombre o con el código de barras.`);
             return;
         }
 
@@ -144,18 +153,19 @@ export async function responderExistenciasEnCanal(canal: string, mensaje: string
         }
 
         if (lineas.length === 0) {
-            await publicarEnCanal(canal, `📦 Encontré "${producto}" pero no pude calcular su existencia ahorita, intenta de nuevo.`);
+            await publicarEnCanal(canal, `📦 ${para}encontré "${producto}" pero no pude calcular su existencia ahorita, intenta de nuevo.`);
             return;
         }
 
-        const encabezado = `📦 Existencia en ${tienda?.Tienda ?? 'esta tienda'}:`;
+        const quien = preguntadoPor.trim() ? ` — pregunta de ${preguntadoPor.trim()}` : '';
+        const encabezado = `📦 Existencia en ${tienda?.Tienda ?? 'esta tienda'}${quien}:`;
         const extra = articulos.length > MAX_ARTICULOS
             ? '\n…hay más coincidencias: sé más específico o dame el código de barras.'
             : '';
         await publicarEnCanal(canal, `${encabezado}\n${lineas.join('\n')}${extra}\n\nCifra estimada: corte nocturno + movimientos de hoy.`);
     } catch (error) {
         console.error(`Error del bot de existencias en ${canal}:`, error);
-        await publicarEnCanal(canal, '📦 No pude consultar la existencia en este momento (¿la tienda está en línea?). Intenta de nuevo en un rato.')
+        await publicarEnCanal(canal, `📦 ${para}no pude consultar la existencia en este momento (¿la tienda está en línea?). Intenta de nuevo en un rato.`)
             .catch(() => { /* sin red ni al portal: no hay más que hacer */ });
     }
 }

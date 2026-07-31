@@ -144,7 +144,7 @@ export async function POST(request: Request) {
         // se responde con datos de LA TIENDA DEL CANAL. Sin await: el envío no se
         // bloquea y la respuesta del bot llega con el siguiente poll (~5 s).
         if (mensaje && /^tienda-\d+$/.test(canal) && preguntaExistencias(mensaje)) {
-            responderExistenciasEnCanal(canal, mensaje).catch(err =>
+            responderExistenciasEnCanal(canal, mensaje, session.name).catch(err =>
                 console.error('Error del bot de existencias del chat:', err)
             );
         }
