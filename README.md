@@ -282,7 +282,19 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   inline (en PDFs con `#page=N` gracias a los marcadores [Página N] de la extracción).
   Mismo protocolo streaming NDJSON, rate limit y prompt caching que Kesito; el panel de ambos
   agentes es el componente genérico [src/components/dashboard/AgenteChat.tsx](src/components/dashboard/AgenteChat.tsx)
-  (acentos ámbar/violeta, conversación en sessionStorage por tienda+usuario).
+  (acentos ámbar/violeta, conversación en sessionStorage por tienda+usuario). El nombre se
+  escribe siempre **A.D.iA.N** (i minúscula): el panel no aplica `uppercase` por CSS.
+
+- **Modo voz en los agentes** (Kesito y A.D.iA.N, como el Modo Voz de kyk-dashboard): botón 🔊
+  en el encabezado del panel activa el modo (persiste en localStorage) y botón 🎤 en el
+  composer dicta con Web Speech API (es-MX, sin servicios externos; requiere Chrome/Edge y
+  HTTPS o localhost). Con el modo activo, la pausa al dictar **envía la pregunta sola**, la
+  respuesta se **lee en voz alta** (voz natural en español si el equipo la tiene, con limpieza
+  de markdown para que suene natural) y al terminar la locución el micrófono se reabre —
+  conversación continua manos libres; escribir con el teclado no dispara el micrófono. Los
+  resultados de herramientas de ambos agentes van acotados por tamaño para que una conversación
+  larga no desborde el contexto del modelo; si aun así pasa, el error sugiere empezar una
+  conversación nueva (↺).
 
 - **Comunicación → Chat → canal Kesito**: fase 4 del portal — agente inteligente de la tienda,
   como canal fijo al inicio de la lista de canales del chat (no existe en BDKYKPortal; la

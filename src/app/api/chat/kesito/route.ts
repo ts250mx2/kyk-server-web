@@ -395,7 +395,15 @@ Reglas:
                 emitir({ t: 'fin' });
             } catch (error) {
                 console.error('Error en Kesito del portal:', error);
-                emitir({ t: 'error', error: 'El agente no pudo responder, intenta de nuevo.' });
+                // Si aun así el contexto se llenó, el remedio es empezar de cero
+                const contextoLleno = error instanceof Anthropic.APIError
+                    && /prompt is too long/i.test(String(error.message));
+                emitir({
+                    t: 'error',
+                    error: contextoLleno
+                        ? 'La conversación creció demasiado. Empieza una nueva con el botón ↺ y vuelve a preguntar.'
+                        : 'El agente no pudo responder, intenta de nuevo.',
+                });
             } finally {
                 try { controller.close(); } catch { /* ya cerrado por el cliente */ }
             }

@@ -9,7 +9,9 @@ export function KesitoPanel({ claveSesion }: { claveSesion: string }) {
         <AgenteChat
             claveSesion={claveSesion}
             config={{
-                nombre: "Kesito",
+                // En mayúsculas explícitas: el panel ya no aplica `uppercase` por
+                // CSS (para respetar la i minúscula de A.D.iA.N)
+                nombre: "KESITO",
                 emoji: "🧀",
                 subtitulo: "Agente de tu tienda · conversación privada",
                 modelo: "Claude Sonnet 5",

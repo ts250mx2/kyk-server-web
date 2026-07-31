@@ -15,6 +15,10 @@ const MODELO = 'claude-sonnet-5';
 const MAX_ITERACIONES = 6;
 const MAX_HISTORIAL = 12;
 const MAX_LISTA = 100;
+// Tope por resultado de herramienta: evita que listas/lecturas grandes acumulen
+// hasta desbordar el contexto del modelo ("prompt is too long")
+const MAX_RESULTADO = 15_000;
+const MAX_RESUMEN_LISTA = 300;
 
 type Row = Record<string, unknown>;
 const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
@@ -161,7 +165,7 @@ export async function POST(request: Request) {
                 nombre: str(d.Nombre),
                 archivo: str(d.NombreArchivo),
                 carpeta: rutas.get(num(d.IdCarpeta)) || 'Sin carpeta',
-                resumen: str(d.Resumen) || '(sin resumen aún)',
+                resumen: (str(d.Resumen) || '(sin resumen aún)').slice(0, MAX_RESUMEN_LISTA),
                 tamano: num(d.Tamano),
                 fecha: str(d.FechaSubida).slice(0, 19),
             }))
@@ -169,7 +173,7 @@ export async function POST(request: Request) {
         if (lista.length === 0) {
             return JSON.stringify({ mensaje: filtro ? `Sin documentos que coincidan con "${filtro}"` : 'No hay documentos en el portal' });
         }
-        return JSON.stringify({ total: lista.length, documentos: lista });
+        return JSON.stringify({ total: lista.length, documentos: lista }).slice(0, MAX_RESULTADO);
     };
 
     const buscarDocumentos = async (termino: string): Promise<string> => {
@@ -202,7 +206,7 @@ export async function POST(request: Request) {
                 nombre: str(porId.get(r.idDocumento)?.Nombre),
                 fragmentos: r.fragmentos,
             })),
-        });
+        }).slice(0, MAX_RESULTADO);
     };
 
     const leerDocumento = async (idDocumento: number, pagina: number): Promise<string> => {
@@ -351,7 +355,15 @@ Reglas:
                 emitir({ t: 'fin' });
             } catch (error) {
                 console.error('Error en A.D.iA.N:', error);
-                emitir({ t: 'error', error: 'El agente no pudo responder, intenta de nuevo.' });
+                // Si aun así el contexto se llenó, el remedio es empezar de cero
+                const contextoLleno = error instanceof Anthropic.APIError
+                    && /prompt is too long/i.test(String(error.message));
+                emitir({
+                    t: 'error',
+                    error: contextoLleno
+                        ? 'La conversación creció demasiado. Empieza una nueva con el botón ↺ y vuelve a preguntar.'
+                        : 'El agente no pudo responder, intenta de nuevo.',
+                });
             } finally {
                 try { controller.close(); } catch { /* ya cerrado por el cliente */ }
             }
