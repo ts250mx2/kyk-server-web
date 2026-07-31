@@ -72,6 +72,7 @@ export function EvaluacionesPanel() {
     const [rol, setRol] = useState("tienda")
     const [cargando, setCargando] = useState(true)
     const [error, setError] = useState("")
+    const [busquedaDoc, setBusquedaDoc] = useState("")
 
     const [vista, setVista] = useState<"lista" | "quiz" | "calificada" | "reporte">("lista")
     const [quiz, setQuiz] = useState<Quiz | null>(null)
@@ -279,6 +280,10 @@ export function EvaluacionesPanel() {
 
     const contestadas = respuestas.filter(r => r !== null).length
 
+    const documentosFiltrados = documentos.filter(d =>
+        !busquedaDoc.trim()
+        || `${d.nombre} ${d.archivo} ${d.evaluacion?.titulo ?? ""}`.toLowerCase().includes(busquedaDoc.trim().toLowerCase()))
+
     return (
         <div className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl flex flex-col overflow-hidden">
             {/* Encabezado */}
@@ -341,7 +346,18 @@ export function EvaluacionesPanel() {
                         </div>
                     ) : (
                         <div className="space-y-2">
-                            {documentos.map(d => (
+                            <input
+                                value={busquedaDoc}
+                                onChange={e => setBusquedaDoc(e.target.value)}
+                                placeholder="Buscar documento..."
+                                className="w-full px-3.5 py-2 bg-white/[0.03] border border-white/10 rounded-xl text-[13px] font-medium text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/25 focus:border-cyan-400/60 transition-all"
+                            />
+                            {documentosFiltrados.length === 0 && (
+                                <p className="text-[12px] font-bold text-slate-600 text-center py-8">
+                                    Ningún documento coincide con &quot;{busquedaDoc.trim()}&quot;.
+                                </p>
+                            )}
+                            {documentosFiltrados.map(d => (
                                 <div key={d.idDocumento} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 flex items-center gap-3 flex-wrap">
                                     <FileText className="h-4 w-4 text-cyan-400/70 shrink-0" />
                                     <div className="flex-1 min-w-0">
