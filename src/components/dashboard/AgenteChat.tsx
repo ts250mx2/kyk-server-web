@@ -2,15 +2,21 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Loader2, Mic, MicOff, RotateCcw, Send, Sparkles, Volume2, VolumeX } from "lucide-react"
-import ReactMarkdown, { type Components } from "react-markdown"
+import { Loader2, Mic, MicOff, Orbit, RotateCcw, Send, Sparkles, Volume2, VolumeX } from "lucide-react"
+import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
+import { crearComponentesMarkdown } from "@/components/dashboard/agente-markdown"
+import { VozJarvis } from "@/components/dashboard/VozJarvis"
+import { consultarAgente, SesionExpiradaError, type MensajeAgente } from "@/lib/agente-cliente"
+import { elegirVoz, errorVoz, obtenerReconocimiento, textoHablable, type ReconocimientoVoz } from "@/lib/voz"
+import type { Components } from "react-markdown"
 
 // Panel genérico de agente conversacional para los canales del chat (Kesito,
-// A.D.iA.N...): cliente streaming NDJSON ({t: delta|reinicio|estado|fin|error}),
-// markdown ligero en las respuestas y conversación en sessionStorage aislada
-// por tienda+usuario. Cada agente lo configura con ConfigAgente.
+// A.D.iA.N...): cliente streaming NDJSON compartido (src/lib/agente-cliente),
+// markdown ligero en las respuestas, conversación en sessionStorage aislada
+// por tienda+usuario, modo voz en línea y consola Jarvis a pantalla completa.
+// Cada agente lo configura con ConfigAgente.
 
 export interface ConfigAgente {
     nombre: string
@@ -27,77 +33,11 @@ export interface ConfigAgente {
     placeholder: string
 }
 
-interface MensajeAgente {
-    rol: "user" | "assistant"
-    texto: string
-}
-
 const MAX_MENSAJE = 2000
 // El servidor corta a los 120 s (maxDuration); el cliente aborta un poco después
 const TIEMPO_MAXIMO_MS = 125_000
 // Modo voz activado/desactivado, compartido entre agentes
 const CLAVE_VOZ = "agente-voz"
-
-// ── Modo voz (Web Speech API, igual que kyk-dashboard: es-MX, sin servicios externos) ──
-
-interface EventoReconocimiento {
-    resultIndex: number
-    results: { length: number; [i: number]: { isFinal: boolean; 0: { transcript: string } } }
-}
-interface ReconocimientoVoz {
-    lang: string
-    continuous: boolean
-    interimResults: boolean
-    maxAlternatives: number
-    onstart: (() => void) | null
-    onresult: ((e: EventoReconocimiento) => void) | null
-    onerror: ((e: { error?: string }) => void) | null
-    onend: (() => void) | null
-    start: () => void
-    stop: () => void
-}
-
-function obtenerReconocimiento(): (new () => ReconocimientoVoz) | null {
-    if (typeof window === "undefined") return null
-    const w = window as unknown as Record<string, unknown>
-    return (w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null) as (new () => ReconocimientoVoz) | null
-}
-
-function errorVoz(codigo: string): string {
-    switch (codigo) {
-        case "not-allowed":
-        case "service-not-allowed":
-            return "Micrófono bloqueado. Toca el candado 🔒 junto a la URL → Micrófono → Permitir, y recarga."
-        case "no-speech": return "No te escuché. Acércate al micrófono e intenta de nuevo."
-        case "audio-capture": return "No detecté ningún micrófono conectado."
-        case "network": return "Sin conexión para el reconocimiento de voz."
-        case "aborted": return ""
-        default: return `Reconocimiento de voz interrumpido (${codigo || "desconocido"}).`
-    }
-}
-
-// Voz en español para las respuestas, prefiriendo las naturales/neuronales
-const RE_VOZ_NATURAL = /google|natural|neural|online|premium|enhanced|wavenet|siri|eloquence/i
-function elegirVoz(voces: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
-    const espanol = voces.filter(v => /^es([-_]|$)/i.test(v.lang))
-    const naturales = espanol.filter(v => RE_VOZ_NATURAL.test(v.name) || RE_VOZ_NATURAL.test(v.voiceURI))
-    const porIdioma = (lista: SpeechSynthesisVoice[]) =>
-        lista.find(v => /es[-_]MX/i.test(v.lang))
-        ?? lista.find(v => /es[-_](419|US)/i.test(v.lang))
-        ?? lista[0]
-    return (naturales.length ? porIdioma(naturales) : undefined) ?? porIdioma(espanol) ?? null
-}
-
-// Markdown → texto hablable (mismo recorte que kyk-dashboard)
-function textoHablable(crudo: string): string {
-    return crudo
-        .replace(/```[\s\S]*?```/g, " ")
-        .replace(/`[^`]*`/g, " ")
-        .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-        .replace(/[*_#>|]/g, " ")
-        .replace(/\s{2,}/g, " ")
-        .trim()
-}
 
 // Clases por acento (literales completas para el JIT de Tailwind)
 const ACENTOS = {
@@ -144,58 +84,6 @@ function conversacionGuardada(clave: string): MensajeAgente[] {
     }
 }
 
-// Las respuestas del agente traen markdown ligero (negritas, listas, tablas).
-// react-markdown no interpreta HTML crudo, así que no hay riesgo de XSS.
-function crearComponentesMarkdown(acento: "ambar" | "violeta"): Components {
-    const esVioleta = acento === "violeta"
-    return {
-        p: ({ children }) => <p className="text-[13px] font-medium text-slate-100 break-words">{children}</p>,
-        strong: ({ children }) => <strong className="font-black text-white">{children}</strong>,
-        em: ({ children }) => <em className="italic text-slate-200">{children}</em>,
-        ul: ({ children }) => <ul className="list-disc pl-4 space-y-0.5 text-[13px] font-medium text-slate-100">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal pl-4 space-y-0.5 text-[13px] font-medium text-slate-100">{children}</ol>,
-        li: ({ children }) => <li className="break-words">{children}</li>,
-        code: ({ children }) => (
-            <code className={cn("px-1 py-0.5 rounded bg-white/[0.08] text-[12px]", esVioleta ? "text-violet-200" : "text-amber-200")}>
-                {children}
-            </code>
-        ),
-        a: ({ href, children }) => (
-            <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn("underline", esVioleta ? "text-violet-300" : "text-amber-300")}
-            >
-                {children}
-            </a>
-        ),
-        h1: ({ children }) => <p className="text-[13px] font-black text-white uppercase tracking-wide">{children}</p>,
-        h2: ({ children }) => <p className="text-[13px] font-black text-white uppercase tracking-wide">{children}</p>,
-        h3: ({ children }) => <p className="text-[13px] font-black text-white">{children}</p>,
-        hr: () => <hr className="border-white/10" />,
-        blockquote: ({ children }) => (
-            <blockquote className={cn("border-l-2 pl-2 text-slate-300", esVioleta ? "border-violet-400/40" : "border-amber-400/40")}>
-                {children}
-            </blockquote>
-        ),
-        table: ({ children }) => (
-            <div className="overflow-x-auto">
-                <table className="text-[12px] border-collapse">{children}</table>
-            </div>
-        ),
-        th: ({ children }) => (
-            <th className={cn(
-                "text-left font-black uppercase tracking-wider text-[10px] px-2 py-1 border-b border-white/15 whitespace-nowrap",
-                esVioleta ? "text-violet-300/80" : "text-amber-300/80"
-            )}>
-                {children}
-            </th>
-        ),
-        td: ({ children }) => <td className="px-2 py-1 border-b border-white/[0.06] text-slate-200">{children}</td>,
-    }
-}
-
 function BurbujaAgente({ texto, nombre, acento, componentes }: {
     texto: string
     nombre: string
@@ -236,6 +124,8 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
     })
     const [escuchando, setEscuchando] = useState(false)
     const [soporteVoz] = useState(() => Boolean(obtenerReconocimiento()))
+    // Consola Jarvis a pantalla completa (comparte esta misma conversación)
+    const [jarvisAbierto, setJarvisAbierto] = useState(false)
 
     const contenedorRef = useRef<HTMLDivElement>(null)
     const entradaRef = useRef<HTMLTextAreaElement>(null)
@@ -244,7 +134,6 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
     const escuchandoRef = useRef(false)
     const finalVozRef = useRef("")
     const vozActivaRef = useRef(vozActiva)
-    const vozRespuestaRef = useRef<SpeechSynthesisVoice | null>(null)
     // Si la última pregunta llegó dictada, al terminar de hablar vuelve a escuchar
     const porVozRef = useRef(false)
     // Refs a las versiones más recientes (evita cierres obsoletos en onend/onresult)
@@ -252,20 +141,6 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
     const escucharRef = useRef<() => void>(() => { })
 
     useEffect(() => { vozActivaRef.current = vozActiva }, [vozActiva])
-
-    // Voz en español para leer respuestas (Chrome dispara la lista vacía primero)
-    useEffect(() => {
-        if (typeof window === "undefined" || !("speechSynthesis" in window)) return
-        const cargar = () => {
-            const voces = window.speechSynthesis.getVoices()
-            if (voces.length) vozRespuestaRef.current = elegirVoz(voces)
-        }
-        cargar()
-        window.speechSynthesis.onvoiceschanged = cargar
-        return () => {
-            try { window.speechSynthesis.onvoiceschanged = null } catch { /* limpieza opcional */ }
-        }
-    }, [])
 
     useEffect(() => {
         try {
@@ -367,7 +242,8 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
         try {
             window.speechSynthesis.cancel()
             const locucion = new SpeechSynthesisUtterance(limpio.slice(0, 4000))
-            const voz = vozRespuestaRef.current
+            // Voz fresca en cada locución: respeta la elegida en la consola Jarvis
+            const voz = elegirVoz(window.speechSynthesis.getVoices())
             if (voz) { locucion.voice = voz; locucion.lang = voz.lang } else { locucion.lang = "es-MX" }
             locucion.rate = 1
             locucion.pitch = 1
@@ -407,63 +283,18 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
         abortRef.current = controlador
         const limite = setTimeout(() => controlador.abort(), TIEMPO_MAXIMO_MS)
 
-        let acumulado = ""
-        let completo = false
-        let fallo = ""
         try {
-            const res = await fetch(config.endpoint, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ mensaje: pregunta, historial }),
-                signal: controlador.signal,
-            })
-            if (res.status === 401) { router.push("/login"); return }
-            if (!res.ok || !res.body) {
-                const json = await res.json().catch(() => null)
-                throw new Error(json?.error || "El agente no pudo responder")
-            }
+            const respuesta = await consultarAgente(config.endpoint, pregunta, historial, {
+                onDelta: acumulado => { setBorrador(acumulado); setEstadoAgente("") },
+                onReinicio: () => setBorrador(""),
+                onEstado: textoEstado => setEstadoAgente(textoEstado),
+            }, controlador.signal)
 
-            const procesar = (linea: string) => {
-                if (!linea.trim()) return
-                let evento: { t?: string; texto?: string; error?: string }
-                try { evento = JSON.parse(linea) } catch { return }
-                if (evento.t === "delta") {
-                    acumulado += evento.texto ?? ""
-                    setBorrador(acumulado)
-                    setEstadoAgente("")
-                } else if (evento.t === "reinicio") {
-                    acumulado = ""
-                    setBorrador("")
-                } else if (evento.t === "estado") {
-                    setEstadoAgente(evento.texto ?? "")
-                } else if (evento.t === "fin") {
-                    completo = true
-                } else if (evento.t === "error") {
-                    fallo = evento.error || "El agente no pudo responder, intenta de nuevo."
-                }
-            }
-
-            // NDJSON: los eventos llegan como líneas JSON conforme el agente avanza
-            const lector = res.body.getReader()
-            const decodificador = new TextDecoder()
-            let pendiente = ""
-            for (;;) {
-                const { done, value } = await lector.read()
-                if (done) break
-                pendiente += decodificador.decode(value, { stream: true })
-                const lineas = pendiente.split("\n")
-                pendiente = lineas.pop() ?? ""
-                lineas.forEach(procesar)
-            }
-            procesar(pendiente)
-
-            if (fallo) throw new Error(fallo)
-            const respuesta = acumulado.trim()
-            if (!completo && !respuesta) throw new Error("Se cortó la conexión con el agente, intenta de nuevo.")
             const textoFinal = respuesta || "No pude completar la consulta, intenta preguntarlo de otra forma."
             setMensajes(prev => [...prev, { rol: "assistant", texto: textoFinal }])
             if (vozActivaRef.current) hablar(textoFinal)
         } catch (err: unknown) {
+            if (err instanceof SesionExpiradaError) { router.push("/login"); return }
             if (controlador.signal.aborted) {
                 setError("El agente tardó demasiado en responder, intenta de nuevo.")
             } else {
@@ -515,6 +346,19 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
                         {config.subtitulo}
                     </p>
                 </div>
+                <button
+                    onClick={() => {
+                        // La consola toma el control del audio: se silencia lo del panel
+                        try { window.speechSynthesis?.cancel() } catch { /* sin síntesis */ }
+                        try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
+                        setJarvisAbierto(true)
+                    }}
+                    className={cn("p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 transition-all", acento.hoverBoton)}
+                    title="Modo Voz — consola Jarvis a pantalla completa"
+                    aria-label="Abrir la consola de voz"
+                >
+                    <Orbit className="h-3.5 w-3.5" />
+                </button>
                 <button
                     onClick={alternarVoz}
                     className={cn(
@@ -652,6 +496,16 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
                     {cargando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </button>
             </div>
+
+            {/* Consola Jarvis: overlay a pantalla completa, misma conversación */}
+            {jarvisAbierto && (
+                <VozJarvis
+                    config={config}
+                    mensajes={mensajes}
+                    onAgregar={m => setMensajes(prev => [...prev, m])}
+                    onCerrar={() => setJarvisAbierto(false)}
+                />
+            )}
         </div>
     )
 }

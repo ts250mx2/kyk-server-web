@@ -296,6 +296,22 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   larga no desborde el contexto del modelo; si aun así pasa, el error sugiere empezar una
   conversación nueva (↺).
 
+- **Consola Jarvis** (botón 🪐 en el panel de cada agente): port del Modo Voz de kyk-dashboard —
+  overlay a pantalla completa con **orbe reactivo a la voz** (aura, anillos, satélites y núcleo
+  que laten con la amplitud; estados escuchando/pensando/hablando/error), tematizado por agente
+  (ámbar KESITO, violeta A.D.iA.N) vía variables CSS ([globals.css](src/app/globals.css)
+  `.jarvis-*`). Tocas el orbe y hablas; la pausa envía, la respuesta llega en streaming y se
+  **lee en voz alta**. Controles: **selector de voces** en español agrupadas (Naturales ✨ /
+  Estándar) con ▶ para escuchar cada una y elección persistida, **velocidad** (0.7x–1.4x),
+  **modo Continua** (reabre el micrófono al terminar de hablar) y entrada de texto de respaldo.
+  El orbe se encoge solo cuando llega la respuesta (botón para re-expandir) y Esc regresa al
+  chat. La conversación es LA MISMA del panel (sessionStorage compartido): lo hablado en la
+  consola aparece en el chat y viceversa. Piezas compartidas: cliente NDJSON
+  ([src/lib/agente-cliente.ts](src/lib/agente-cliente.ts)), utilerías de voz
+  ([src/lib/voz.ts](src/lib/voz.ts)) y markdown de agentes
+  ([agente-markdown.tsx](src/components/dashboard/agente-markdown.tsx)); la consola es
+  [VozJarvis.tsx](src/components/dashboard/VozJarvis.tsx).
+
 - **Comunicación → Chat → canal Kesito**: fase 4 del portal — agente inteligente de la tienda,
   como canal fijo al inicio de la lista de canales del chat (no existe en BDKYKPortal; la
   conversación es local al navegador, en `sessionStorage`). El panel

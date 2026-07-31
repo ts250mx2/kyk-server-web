@@ -82,3 +82,180 @@ button, a, input, select, textarea {
 @media (prefers-reduced-motion: reduce) {
   .ksw-aurora, .ksw-shake { animation: none; }
 }
+
+/* ============================================================
+   Consola de voz "Jarvis" de los agentes (KESITO / A.D.iA.N):
+   orbe reactivo a la voz — port del Modo Voz de kyk-dashboard,
+   tematizado por agente con variables (--j1 primario, --j2 y
+   --j3 acompañantes, --jcore esfera, --jtitulo título).
+   ============================================================ */
+@keyframes jarvis-spin      { to { transform: rotate(360deg); } }
+@keyframes jarvis-spin-rev  { to { transform: rotate(-360deg); } }
+@keyframes jarvis-float     { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes jarvis-ping      { 0% { transform: scale(.78); opacity: .55; } 100% { transform: scale(2); opacity: 0; } }
+@keyframes jarvis-drift     { to { background-position: 60px 60px, 60px 60px; } }
+@keyframes jarvis-hue       { to { filter: hue-rotate(360deg); } }
+@keyframes jarvis-scan      { 0% { transform: translateY(-120%); } 100% { transform: translateY(220%); } }
+@keyframes jarvis-title-glow{ 0%, 100% { opacity: .85; } 50% { opacity: 1; } }
+
+.jarvis-stage {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgb(var(--j2) / .12), transparent 60%),
+    radial-gradient(100% 70% at 50% 110%, rgb(var(--j3) / .14), transparent 60%),
+    #0a0e14;
+}
+.jarvis-stage[data-acento="ambar"] {
+  --j1: 251 191 36;   /* amber-400 */
+  --j2: 34 211 238;   /* cyan-400 */
+  --j3: 129 140 248;  /* indigo-400 */
+  --jcore: radial-gradient(circle at 35% 28%, #fffbeb 0%, #fde68a 17%, #f59e0b 42%, #92400e 70%, #3b1e04 100%);
+  --jtitulo: linear-gradient(120deg, #fde68a, #fbbf24 30%, #22d3ee 60%, #818cf8);
+}
+.jarvis-stage[data-acento="violeta"] {
+  --j1: 167 139 250;  /* violet-400 */
+  --j2: 34 211 238;   /* cyan-400 */
+  --j3: 244 114 182;  /* pink-400 */
+  --jcore: radial-gradient(circle at 35% 28%, #f5f3ff 0%, #c4b5fd 17%, #8b5cf6 42%, #5b21b6 70%, #1e1b4b 100%);
+  --jtitulo: linear-gradient(120deg, #ddd6fe, #a78bfa 30%, #22d3ee 60%, #f472b6);
+}
+.jarvis-stage::before {            /* malla futurista con desvanecido radial */
+  content: "";
+  position: absolute;
+  inset: -2px;
+  background-image:
+    linear-gradient(rgb(var(--j2) / .07) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--j2) / .07) 1px, transparent 1px);
+  background-size: 60px 60px, 60px 60px;
+  -webkit-mask-image: radial-gradient(72% 62% at 50% 42%, #000 28%, transparent 78%);
+          mask-image: radial-gradient(72% 62% at 50% 42%, #000 28%, transparent 78%);
+  animation: jarvis-drift 16s linear infinite;
+  pointer-events: none;
+}
+
+.jarvis-title {
+  background: var(--jtitulo);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 38px rgb(var(--j1) / .25);
+  animation: jarvis-title-glow 3.4s ease-in-out infinite;
+}
+
+.jarvis-orb {
+  --amp: 0;
+  position: relative;
+  width: var(--orb, 300px);
+  height: var(--orb, 300px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: jarvis-float 6s ease-in-out infinite;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+/* aura externa que respira con la amplitud de la voz */
+.jarvis-aura {
+  position: absolute;
+  inset: -20%;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 50% 50%, rgb(var(--j1) / .55), rgb(var(--j2) / .22) 42%, transparent 70%);
+  filter: blur(40px);
+  transform: scale(calc(1 + var(--amp) * .6));
+  opacity: calc(.45 + var(--amp) * .55);
+  transition: transform .08s linear, opacity .08s linear;
+}
+
+.jarvis-ring { position: absolute; inset: 0; border-radius: 9999px; }
+.jarvis-ring--1 {
+  background: conic-gradient(from 0deg, transparent, rgb(var(--j2) / 0), rgb(var(--j1) / .95), transparent 55%, rgb(var(--j3) / .75), transparent);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(50% - 7px), #000 calc(50% - 6px));
+          mask: radial-gradient(farthest-side, transparent calc(50% - 7px), #000 calc(50% - 6px));
+  animation: jarvis-spin 7s linear infinite;
+}
+.jarvis-ring--2 {
+  inset: 9%;
+  background: conic-gradient(from 90deg, transparent, rgb(var(--j3) / .95), transparent 40%, rgb(var(--j2) / .85), transparent 72%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(50% - 3px), #000 calc(50% - 2px));
+          mask: radial-gradient(farthest-side, transparent calc(50% - 3px), #000 calc(50% - 2px));
+  animation: jarvis-spin-rev 5s linear infinite;
+}
+.jarvis-ring--dashed {
+  inset: -7%;
+  border: 1.5px dashed rgb(var(--j1) / .35);
+  animation: jarvis-spin 26s linear infinite;
+}
+
+/* núcleo: esfera de cristal con brillo especular */
+.jarvis-core {
+  position: absolute;
+  inset: 21%;
+  border-radius: 9999px;
+  background: var(--jcore);
+  box-shadow:
+    inset 0 0 30px rgba(0, 0, 0, .45),
+    inset 7px 9px 28px rgba(255, 255, 255, .22),
+    0 0 calc(46px + var(--amp) * 60px) rgb(var(--j1) / .55),
+    0 0 calc(80px + var(--amp) * 90px) rgb(var(--j2) / .30);
+  transform: scale(calc(1 + var(--amp) * .15));
+  transition: transform .07s linear, box-shadow .07s linear;
+  overflow: hidden;
+}
+.jarvis-core::after {              /* highlight especular */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 32% 22%, rgba(255, 255, 255, .65), transparent 38%);
+  mix-blend-mode: screen;
+}
+.jarvis-core::before {             /* línea de barrido tipo HUD */
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 30%;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, .32), transparent);
+  animation: jarvis-scan 3.2s ease-in-out infinite;
+}
+
+/* destello expansivo (cuando escucha o habla) */
+.jarvis-pulse {
+  position: absolute;
+  inset: 19%;
+  border-radius: 9999px;
+  border: 2px solid rgb(var(--j1) / .5);
+  animation: jarvis-ping 2.4s ease-out infinite;
+  pointer-events: none;
+}
+
+/* satélites orbitando */
+.jarvis-orbit { position: absolute; inset: -5%; border-radius: 9999px; animation: jarvis-spin 10s linear infinite; pointer-events: none; }
+.jarvis-orbit--rev { animation: jarvis-spin-rev 14s linear infinite; }
+.jarvis-orbit span {
+  position: absolute; top: 50%; left: -3px;
+  width: 6px; height: 6px; border-radius: 9999px;
+  background: rgb(var(--j1)); box-shadow: 0 0 12px rgb(var(--j1));
+}
+.jarvis-orbit--rev span { background: rgb(var(--j3)); box-shadow: 0 0 12px rgb(var(--j3)); }
+
+/* variaciones por estado */
+.jarvis-orb[data-status="listening"] .jarvis-ring--1 { animation-duration: 3.4s; }
+.jarvis-orb[data-status="listening"] .jarvis-aura {
+  background: radial-gradient(circle at 50% 50%, rgb(var(--j2) / .6), rgb(var(--j1) / .22) 45%, transparent 70%);
+}
+.jarvis-orb[data-status="thinking"] { animation: jarvis-float 2.6s ease-in-out infinite; }
+.jarvis-orb[data-status="thinking"] .jarvis-ring--1 { animation-duration: 1.7s; }
+.jarvis-orb[data-status="thinking"] .jarvis-ring--2 { animation-duration: 1.1s; }
+.jarvis-orb[data-status="thinking"] .jarvis-core { animation: jarvis-hue 3.2s linear infinite; }
+.jarvis-orb[data-status="speaking"] .jarvis-ring--1 { animation-duration: 2.4s; }
+.jarvis-orb[data-status="speaking"] .jarvis-aura {
+  background: radial-gradient(circle at 50% 50%, rgb(var(--j3) / .55), rgb(var(--j1) / .25) 45%, transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-orb, .jarvis-stage::before, .jarvis-orbit, .jarvis-core::before,
+  .jarvis-ring--1, .jarvis-ring--2, .jarvis-ring--dashed, .jarvis-pulse, .jarvis-title { animation: none; }
+}
