@@ -3,7 +3,11 @@
 import path from 'node:path';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 
-export const TAMANO_MAXIMO = 25 * 1024 * 1024;       // 25 MB documentos
+// Límite de subida de documentos, configurable con DOCUMENTOS_MAX_MB (default
+// 50 MB). El max_allowed_packet del MySQL central debe superar este límite
+// (recomendado el doble) porque el binario viaja en un solo paquete.
+export const TAMANO_MAXIMO = (Number(process.env.DOCUMENTOS_MAX_MB) || 50) * 1024 * 1024;
+export const TAMANO_MAXIMO_MB = Math.round(TAMANO_MAXIMO / (1024 * 1024));
 export const TAMANO_MAXIMO_IMAGEN = 10 * 1024 * 1024; // 10 MB fotos del chat
 
 const RAIZ_UPLOADS = process.env.PORTAL_UPLOADS

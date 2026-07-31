@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getSession } from '@/lib/session';
 import { portalQuery, esOficina } from '@/lib/portal-db';
-import { leerArchivo } from '@/lib/documentos-fs';
-import { extraerTexto } from '@/lib/extraer-texto';
+import { asegurarTexto, buscarEnTextos, obtenerPagina } from '@/lib/documentos-texto';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -15,7 +14,6 @@ export const maxDuration = 120;
 const MODELO = 'claude-sonnet-5';
 const MAX_ITERACIONES = 6;
 const MAX_HISTORIAL = 12;
-const MAX_TEXTO = 18_000;
 const MAX_LISTA = 100;
 
 type Row = Record<string, unknown>;
@@ -35,18 +33,16 @@ function excedeLimite(clave: string): boolean {
     return excede;
 }
 
-// Cache de texto extraído (los documentos son inmutables una vez subidos)
-const cacheTexto = new Map<number, string | null>();
-
 const ETIQUETA_HERRAMIENTA: Record<string, string> = {
     listar_documentos: 'la lista de documentos',
+    buscar_en_documentos: 'la búsqueda en los documentos',
     leer_documento: 'el contenido del documento',
 };
 
 const HERRAMIENTAS: Anthropic.Tool[] = [
     {
         name: 'listar_documentos',
-        description: 'Lista los documentos del portal visibles para la tienda (nombre, carpeta, tipo, tamaño, fecha e idDocumento). Úsala primero para saber qué hay; el filtro busca en nombre, archivo y carpeta.',
+        description: 'Lista los documentos del portal visibles para la tienda, cada uno con su RESUMEN de contenido (además de nombre, carpeta, tamaño, fecha e idDocumento). Úsala para el panorama general y elegir por significado qué leer; el filtro busca en nombre, archivo y carpeta.',
         input_schema: {
             type: 'object',
             properties: {
@@ -55,12 +51,24 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
         },
     },
     {
+        name: 'buscar_en_documentos',
+        description: 'Busca un término DENTRO del contenido de todos los documentos visibles y regresa los documentos donde aparece, con fragmentos del texto alrededor de cada coincidencia. Ideal cuando el usuario pregunta por un tema y no sabes en qué documento está.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                termino: { type: 'string', description: 'Palabra o frase a buscar en el contenido' },
+            },
+            required: ['termino'],
+        },
+    },
+    {
         name: 'leer_documento',
-        description: 'Extrae y regresa el TEXTO de un documento por su idDocumento (de listar_documentos). Soporta PDF, Word (.docx), Excel/CSV y texto plano; imágenes, ZIP y similares no tienen texto extraíble.',
+        description: 'Regresa el TEXTO de un documento por su idDocumento, en páginas de ~12,000 caracteres (parámetro pagina, default 1; la respuesta indica totalPaginas para pedir las siguientes). Soporta PDF, Word (.docx), Excel/CSV y texto plano.',
         input_schema: {
             type: 'object',
             properties: {
                 idDocumento: { type: 'number' },
+                pagina: { type: 'number', description: 'Página de texto a leer (1-indexada, default 1)' },
             },
             required: ['idDocumento'],
         },
@@ -123,17 +131,17 @@ export async function POST(request: Request) {
         return rutas;
     };
 
+    const documentosVisibles = async (): Promise<Row[]> =>
+        (await portalQuery(`
+            SELECT D.IdDocumento, D.IdCarpeta, D.Nombre, D.NombreArchivo, D.Tamano, D.FechaSubida, D.Resumen
+            FROM documentos D
+            WHERE D.Status = 0 ${filtroTienda}
+            ORDER BY D.FechaSubida DESC
+            LIMIT ${MAX_LISTA}
+        `)) as Row[];
+
     const listarDocumentos = async (busqueda: string): Promise<string> => {
-        const [docs, rutas] = await Promise.all([
-            portalQuery(`
-                SELECT D.IdDocumento, D.IdCarpeta, D.Nombre, D.NombreArchivo, D.Tamano, D.FechaSubida
-                FROM documentos D
-                WHERE D.Status = 0 ${filtroTienda}
-                ORDER BY D.FechaSubida DESC
-                LIMIT ${MAX_LISTA}
-            `) as Promise<Row[]>,
-            rutaCarpetas(),
-        ]);
+        const [docs, rutas] = await Promise.all([documentosVisibles(), rutaCarpetas()]);
         const filtro = busqueda.trim().toLowerCase();
         const lista = docs
             .map(d => ({
@@ -141,6 +149,7 @@ export async function POST(request: Request) {
                 nombre: str(d.Nombre),
                 archivo: str(d.NombreArchivo),
                 carpeta: rutas.get(num(d.IdCarpeta)) || 'Sin carpeta',
+                resumen: str(d.Resumen) || '(sin resumen aún)',
                 tamano: num(d.Tamano),
                 fecha: str(d.FechaSubida).slice(0, 19),
             }))
@@ -151,12 +160,45 @@ export async function POST(request: Request) {
         return JSON.stringify({ total: lista.length, documentos: lista });
     };
 
-    const leerDocumento = async (idDocumento: number): Promise<string> => {
+    const buscarDocumentos = async (termino: string): Promise<string> => {
+        const limpio = termino.trim();
+        if (!limpio) return JSON.stringify({ error: 'Término de búsqueda vacío' });
+
+        const docs = await documentosVisibles();
+        if (docs.length === 0) return JSON.stringify({ mensaje: 'No hay documentos en el portal' });
+        const porId = new Map(docs.map(d => [num(d.IdDocumento), d]));
+
+        // Backfill perezoso: indexa hasta 10 documentos que aún no tengan texto
+        // (los recién subidos se indexan al subir; esto cubre los históricos)
+        const conTexto = (await portalQuery(
+            'SELECT DISTINCT IdDocumento FROM documentos_texto'
+        )) as Row[];
+        const indexados = new Set(conTexto.map(r => num(r.IdDocumento)));
+        const pendientes = docs.filter(d => !indexados.has(num(d.IdDocumento))).slice(0, 10);
+        for (const p of pendientes) {
+            await asegurarTexto(num(p.IdDocumento)).catch(() => { /* sin texto extraíble */ });
+        }
+
+        const resultados = await buscarEnTextos(limpio, docs.map(d => num(d.IdDocumento)));
+        if (resultados.length === 0) {
+            return JSON.stringify({ mensaje: `Ningún documento visible contiene "${limpio}"` });
+        }
+        return JSON.stringify({
+            termino: limpio,
+            documentos: resultados.slice(0, 8).map(r => ({
+                idDocumento: r.idDocumento,
+                nombre: str(porId.get(r.idDocumento)?.Nombre),
+                fragmentos: r.fragmentos,
+            })),
+        });
+    };
+
+    const leerDocumento = async (idDocumento: number, pagina: number): Promise<string> => {
         if (!Number.isInteger(idDocumento) || idDocumento <= 0) {
             return JSON.stringify({ error: 'idDocumento inválido' });
         }
         const docs = (await portalQuery(`
-            SELECT D.IdDocumento, D.Nombre, D.NombreArchivo, D.Archivo, D.Contenido, D.TipoMime
+            SELECT D.IdDocumento, D.Nombre, D.NombreArchivo
             FROM documentos D
             WHERE D.IdDocumento = ? AND D.Status = 0 ${filtroTienda}
         `, [idDocumento])) as Row[];
@@ -165,34 +207,30 @@ export async function POST(request: Request) {
             return JSON.stringify({ error: 'Documento no encontrado o no disponible para tu tienda' });
         }
 
-        let texto = cacheTexto.get(idDocumento);
-        if (texto === undefined) {
-            const contenido = Buffer.isBuffer(doc.Contenido) && doc.Contenido.length > 0
-                ? doc.Contenido
-                : await leerArchivo(str(doc.Archivo)).catch(() => null);
-            texto = contenido ? await extraerTexto(str(doc.NombreArchivo), str(doc.TipoMime), contenido) : null;
-            if (cacheTexto.size > 50) cacheTexto.clear();
-            cacheTexto.set(idDocumento, texto);
-        }
-
-        if (!texto || !texto.trim()) {
+        const resultado = await obtenerPagina(idDocumento, pagina);
+        if (!resultado) {
             return JSON.stringify({
                 nombre: str(doc.Nombre),
                 error: `El archivo "${str(doc.NombreArchivo)}" no tiene texto extraíble (imagen, ZIP, .doc viejo o similar)`,
             });
         }
-        const recortado = texto.length > MAX_TEXTO;
         return JSON.stringify({
             nombre: str(doc.Nombre),
             archivo: str(doc.NombreArchivo),
-            texto: recortado ? `${texto.slice(0, MAX_TEXTO)}\n\n[TEXTO RECORTADO: el documento es más largo]` : texto,
+            pagina: resultado.pagina,
+            totalPaginas: resultado.totalPaginas,
+            texto: resultado.texto,
+            ...(resultado.pagina < resultado.totalPaginas
+                ? { nota: `Hay ${resultado.totalPaginas - resultado.pagina} página(s) más: pide la siguiente con pagina=${resultado.pagina + 1}` }
+                : {}),
         });
     };
 
     const ejecutarHerramienta = async (nombre: string, entrada: Record<string, unknown>): Promise<string> => {
         try {
             if (nombre === 'listar_documentos') return await listarDocumentos(String(entrada.busqueda ?? ''));
-            if (nombre === 'leer_documento') return await leerDocumento(Number(entrada.idDocumento));
+            if (nombre === 'buscar_en_documentos') return await buscarDocumentos(String(entrada.termino ?? ''));
+            if (nombre === 'leer_documento') return await leerDocumento(Number(entrada.idDocumento), Number(entrada.pagina) || 1);
             return JSON.stringify({ error: 'Herramienta desconocida' });
         } catch (error) {
             console.error(`Error en herramienta ${nombre} de A.D.iA.N:`, error);
@@ -203,8 +241,8 @@ export async function POST(request: Request) {
     const sistema = `Eres A.D.iA.N (Asistente Documental con IA) del portal KYK Server Web, atendiendo a la tienda ${session.tienda}.
 
 SOLO respondes con información contenida en los DOCUMENTOS subidos al portal. Tu flujo:
-1. Usa listar_documentos para ver qué hay (con busqueda cuando ayude).
-2. Lee con leer_documento el o los documentos relevantes.
+1. Si buscas un TEMA o dato específico, empieza con buscar_en_documentos (busca dentro del contenido y regresa fragmentos). Para un panorama general usa listar_documentos, que incluye el resumen de cada documento para elegir por significado.
+2. Lee con leer_documento el o los documentos relevantes; viene paginado (~12k caracteres por página) — pide más páginas solo si la respuesta lo amerita.
 3. Responde citando SIEMPRE el documento fuente por su nombre en **negritas**.
 
 Reglas:

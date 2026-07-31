@@ -694,7 +694,7 @@ export default function DocumentosPage() {
                         </div>
                         <div className="p-6 space-y-4">
                             <div>
-                                <label className={cn(lbl, "block mb-1.5 pl-1")}>Archivos (máx. 25 MB c/u)</label>
+                                <label className={cn(lbl, "block mb-1.5 pl-1")}>Archivos (máx. 50 MB c/u)</label>
                                 <DropZone
                                     multiple
                                     onFiles={fs => {

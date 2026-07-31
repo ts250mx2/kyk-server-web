@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { portalQuery, esOficina } from '@/lib/portal-db';
-import { TAMANO_MAXIMO } from '@/lib/documentos-fs';
+import { TAMANO_MAXIMO, TAMANO_MAXIMO_MB } from '@/lib/documentos-fs';
+import { asegurarTexto } from '@/lib/documentos-texto';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,7 +131,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 });
         }
         if (archivo.size > TAMANO_MAXIMO) {
-            return NextResponse.json({ error: 'El archivo excede el límite de 25 MB' }, { status: 400 });
+            return NextResponse.json(
+                { error: `El archivo excede el límite de ${TAMANO_MAXIMO_MB} MB` },
+                { status: 400 }
+            );
         }
 
         const nombre = str(form.get('nombre')).trim() || archivo.name;
@@ -172,6 +176,12 @@ export async function POST(request: Request) {
                 );
             }
         }
+
+        // Texto y resumen para A.D.iA.N en segundo plano: la subida no espera
+        // (si falla, el texto se genera de forma perezosa en la primera lectura)
+        asegurarTexto(resultado.insertId).catch(err =>
+            console.warn(`No se procesó el texto del documento ${resultado.insertId}:`, err)
+        );
 
         return NextResponse.json({ success: true, idDocumento: resultado.insertId });
     } catch (error) {

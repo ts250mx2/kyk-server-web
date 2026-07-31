@@ -106,6 +106,12 @@ const TABLAS = [
         FechaEnvio DATETIME NOT NULL,
         KEY idx_canal (Canal, IdMensaje)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    `CREATE TABLE IF NOT EXISTS documentos_texto (
+        IdDocumento INT NOT NULL,
+        Parte INT NOT NULL,
+        Texto MEDIUMTEXT NOT NULL,
+        PRIMARY KEY (IdDocumento, Parte)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
     `CREATE TABLE IF NOT EXISTS chat_lecturas (
         Canal VARCHAR(30) NOT NULL,
         CodigoBarras VARCHAR(45) NOT NULL,
@@ -122,6 +128,8 @@ const MIGRACIONES = [
     // El binario del documento vive en la base; los subidos antes de esta
     // migración se siguen leyendo de disco como respaldo
     `ALTER TABLE documentos ADD COLUMN Contenido LONGBLOB NULL`,
+    // Resumen automático (Haiku) para que A.D.iA.N elija documentos por significado
+    `ALTER TABLE documentos ADD COLUMN Resumen TEXT NULL`,
 ];
 
 let esquemaListo: Promise<void> | null = null;
