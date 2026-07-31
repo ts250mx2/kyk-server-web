@@ -118,10 +118,11 @@ export async function GET(request: Request) {
                 INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
                 INNER JOIN tblProveedores C ON B.IdProveedor = C.IdProveedor
                 INNER JOIN tblArticulos D ON A.CodigoInterno = D.CodigoInterno
-                WHERE B.Status = 0 AND B.Devolucion = 0 AND B.FechaRecibo >= ?
+                WHERE B.Status = 0 AND A.Devolucion = 0 AND B.FechaRecibo >= ?
                   AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             `, [desde, idTienda, ...codigos], {
-                // Esquema viejo (bodegas): tblReciboMovil sin columna Devolucion
+                // Devolucion vive en el DETALLE; si un esquema muy viejo tampoco
+                // la tiene ahí, todos los recibos cuentan como entrada
                 sqlViejo: `
                     SELECT A.CodigoInterno AS Codigo, B.FechaRecibo AS Fecha,
                            'Recibo' AS Tipo, B.FolioReciboMovil AS Folio,
@@ -145,10 +146,10 @@ export async function GET(request: Request) {
                 FROM tblDetalleReciboMovil A
                 INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
                 INNER JOIN tblProveedores C ON B.IdProveedor = C.IdProveedor
-                WHERE B.Status = 0 AND B.Devolucion = 1 AND RecGranel = 0 AND B.FechaRecibo >= ?
+                WHERE B.Status = 0 AND A.Devolucion = 1 AND RecGranel = 0 AND B.FechaRecibo >= ?
                   AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             `, [desde, idTienda, ...codigos], {
-                // Esquema viejo: sin Devolucion no existen devoluciones de recibo
+                // Esquema viejo sin Devolucion en el detalle: no hay devoluciones
                 omitirSiFaltaColumna: true,
             }),
             consulta('transferencias de entrada', `
@@ -186,12 +187,13 @@ export async function GET(request: Request) {
                 WHERE B.Status = 0 AND B.FechaMovimiento >= ?
                   AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             `, [desde, idTienda, ...codigos]),
+            // TipoMovimiento de empacados vive en el DETALLE (igual que en el Java)
             consulta('empacados', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaEmpacado AS Fecha,
-                       CASE WHEN B.TipoMovimiento = 0 THEN 'Empacado (Entrada)'
+                       CASE WHEN A.TipoMovimiento = 0 THEN 'Empacado (Entrada)'
                             ELSE 'Empacado (Salida)' END AS Tipo,
                        A.IdEmpacado AS Folio, B.Concepto AS Referencia,
-                       CASE WHEN B.TipoMovimiento = 0 THEN A.Cantidad ELSE A.Cantidad * -1 END AS Mov
+                       CASE WHEN A.TipoMovimiento = 0 THEN A.Cantidad ELSE A.Cantidad * -1 END AS Mov
                 FROM tblDetalleEmpacados2 A
                 INNER JOIN tblEmpacados2 B ON A.IdEmpacado = B.IdEmpacado AND A.IdTienda = B.IdTienda
                 WHERE B.FechaEmpacado >= ? AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})

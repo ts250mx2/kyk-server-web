@@ -88,9 +88,12 @@ export async function calcularExistencia(
     const snapshot = snapshots?.[0] ?? null;
     let base = num(snapshot?.Exi);
     const pvd = num(snapshot?.PVD);
-    // El snapshot representa el cierre de su Fecha: el delta arranca al día siguiente
+    // El snapshot se toma en la MADRUGADA de su Fecha y refleja el cierre del
+    // día anterior: TODOS los movimientos del propio día del corte (ventas,
+    // recibos, devoluciones, transferencias...) van encima de la base — el
+    // delta arranca a las 00:00 de la Fecha del corte, no al día siguiente
     let corte = snapshot?.Fecha
-        ? new Date(new Date(String(snapshot.Fecha)).getTime() + 24 * 60 * 60 * 1000)
+        ? new Date(fechaTexto(snapshot.Fecha))
         : null;
     let baseOrigen: 'corte' | 'ajuste' | 'sin-corte' = snapshot ? 'corte' : 'sin-corte';
 
@@ -104,7 +107,7 @@ export async function calcularExistencia(
     `, [maestro, idTienda]).catch(() => [])) as Row[];
     const ajuste = ajustes?.[0];
     if (ajuste?.FechaAjuste) {
-        const fechaAjuste = new Date(String(ajuste.FechaAjuste));
+        const fechaAjuste = new Date(fechaTexto(ajuste.FechaAjuste));
         if (!corte || fechaAjuste >= corte) {
             base = num(ajuste.Exi);
             corte = fechaAjuste;
@@ -182,12 +185,12 @@ export async function calcularExistencia(
             FROM tblDetalleReciboMovil A
             INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
             INNER JOIN tblArticulos D ON A.CodigoInterno = D.CodigoInterno
-            WHERE B.Status = 0 AND B.Devolucion = 0 AND B.FechaRecibo >= ? AND A.IdTienda = ?
+            WHERE B.Status = 0 AND A.Devolucion = 0 AND B.FechaRecibo >= ? AND A.IdTienda = ?
               AND A.CodigoInterno IN (${marcas})
             GROUP BY A.CodigoInterno
         `, [desde, idTienda, ...codigos], {
-            // Esquema viejo (bodegas): tblReciboMovil sin columna Devolucion —
-            // todos los recibos son entradas
+            // Devolucion vive en el DETALLE (el header nunca la tuvo); si algún
+            // esquema muy viejo tampoco la tiene ahí, todos los recibos son entradas
             sqlViejo: `
                 SELECT A.CodigoInterno, SUM(CASE WHEN D.IdTipo = 2 AND RecGranel > 0 THEN RecGranel
                     ELSE CASE WHEN RecGranel = 0 AND D.TipoOperacion <> 1 THEN Rec * A.CantidadCompra
@@ -205,11 +208,11 @@ export async function calcularExistencia(
             SELECT A.CodigoInterno, SUM(Rec) AS Mov
             FROM tblDetalleReciboMovil A
             INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
-            WHERE B.Status = 0 AND B.Devolucion = 1 AND RecGranel = 0 AND B.FechaRecibo >= ?
+            WHERE B.Status = 0 AND A.Devolucion = 1 AND RecGranel = 0 AND B.FechaRecibo >= ?
               AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             GROUP BY A.CodigoInterno
         `, [desde, idTienda, ...codigos], {
-            // Esquema viejo: sin Devolucion no existen devoluciones de recibo
+            // Esquema viejo sin Devolucion en el detalle: no existen devoluciones
             omitirSiFaltaColumna: true,
         }),
         suma('transferencias de entrada', `
@@ -248,11 +251,12 @@ export async function calcularExistencia(
               AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             GROUP BY A.CodigoInterno
         `, [desde, idTienda, ...codigos]),
+        // TipoMovimiento de empacados vive en el DETALLE (igual que en el Java)
         suma('empacados (entradas)', `
             SELECT A.CodigoInterno, SUM(A.Cantidad) AS Mov
             FROM tblDetalleEmpacados2 A
             INNER JOIN tblEmpacados2 B ON A.IdEmpacado = B.IdEmpacado AND A.IdTienda = B.IdTienda
-            WHERE B.FechaEmpacado >= ? AND B.TipoMovimiento = 0
+            WHERE B.FechaEmpacado >= ? AND A.TipoMovimiento = 0
               AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             GROUP BY A.CodigoInterno
         `, [desde, idTienda, ...codigos]),
@@ -260,7 +264,7 @@ export async function calcularExistencia(
             SELECT A.CodigoInterno, SUM(A.Cantidad) AS Mov
             FROM tblDetalleEmpacados2 A
             INNER JOIN tblEmpacados2 B ON A.IdEmpacado = B.IdEmpacado AND A.IdTienda = B.IdTienda
-            WHERE B.FechaEmpacado >= ? AND B.TipoMovimiento = 1
+            WHERE B.FechaEmpacado >= ? AND A.TipoMovimiento = 1
               AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
             GROUP BY A.CodigoInterno
         `, [desde, idTienda, ...codigos]),
