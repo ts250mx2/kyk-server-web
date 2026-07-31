@@ -10,10 +10,11 @@ type Row = Record<string, unknown>;
 const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
 
-// Descarga de un documento con auditoría: valida que la tienda tenga acceso,
-// registra quién lo descargó y regresa el archivo.
+// Descarga o vista previa de un documento con auditoría: valida que la tienda
+// tenga acceso, registra el acceso y regresa el archivo. Con ?vista=1 se sirve
+// inline para que el navegador lo muestre (PDF, imágenes, video, audio, texto).
 export async function GET(
-    _request: Request,
+    request: Request,
     { params }: { params: Promise<{ id: string }> }
 ) {
     const session = await getSession();
@@ -57,11 +58,12 @@ export async function GET(
         `, [idDocumento, session.idTienda, session.codigobarras, session.name])
             .catch(err => console.warn('No se registró la descarga:', err));
 
+        const enLinea = new URL(request.url).searchParams.get('vista') === '1';
         const nombreDescarga = str(doc.NombreArchivo) || `documento_${idDocumento}`;
         return new NextResponse(new Uint8Array(contenido), {
             headers: {
                 'Content-Type': str(doc.TipoMime) || 'application/octet-stream',
-                'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(nombreDescarga)}`,
+                'Content-Disposition': `${enLinea ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(nombreDescarga)}`,
                 'Content-Length': String(contenido.length),
             },
         });

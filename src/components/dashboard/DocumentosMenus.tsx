@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { X } from "lucide-react"
+import { X, Download, ExternalLink, FileQuestion } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
 
@@ -58,6 +58,114 @@ export function MenuContextual({ x, y, opciones, onCerrar }: {
                         </button>
                     </div>
                 ))}
+            </div>
+        </div>
+    )
+}
+
+// Tipos que el navegador puede mostrar en la vista previa
+export function tipoVistaPrevia(nombreArchivo: string, mime: string): "pdf" | "imagen" | "video" | "audio" | "texto" | null {
+    const ext = nombreArchivo.split(".").pop()?.toLowerCase() ?? ""
+    if (mime.includes("pdf") || ext === "pdf") return "pdf"
+    if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext)) return "imagen"
+    if (mime.startsWith("video/") || ["mp4", "webm", "mov"].includes(ext)) return "video"
+    if (mime.startsWith("audio/") || ["mp3", "wav", "ogg"].includes(ext)) return "audio"
+    if (["txt", "log", "csv", "json", "xml", "html"].includes(ext)) return "texto"
+    return null
+}
+
+export interface DocumentoVista {
+    idDocumento: number
+    nombre: string
+    nombreArchivo: string
+    tipoMime: string
+}
+
+// Vista previa del documento dentro del portal, con opción de abrir en
+// pestaña nueva o descargar. Para tipos sin vista (Word, Excel, ZIP...) se
+// ofrece la descarga directa.
+export function VistaPreviaModal({ doc, onClose }: { doc: DocumentoVista; onClose: () => void }) {
+    const urlVista = `/api/documentos/${doc.idDocumento}/descargar?vista=1`
+    const urlDescarga = `/api/documentos/${doc.idDocumento}/descargar`
+    const tipo = tipoVistaPrevia(doc.nombreArchivo, doc.tipoMime)
+
+    useEffect(() => {
+        const alTeclear = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+        window.addEventListener("keydown", alTeclear)
+        return () => window.removeEventListener("keydown", alTeclear)
+    }, [onClose])
+
+    return (
+        <div
+            className="fixed inset-0 z-[85] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={onClose}
+        >
+            <div
+                className={cn(
+                    "w-full max-w-5xl bg-[#0d1320] border border-white/10 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col",
+                    tipo === "audio" || tipo === null ? "max-h-[60vh]" : "h-[88vh]"
+                )}
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between gap-3">
+                    <h3 className="text-[15px] font-black text-white truncate min-w-0">{doc.nombre}</h3>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <a
+                            href={urlVista}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/30 transition-all"
+                            title="Abrir en pestaña nueva"
+                        >
+                            <ExternalLink className="h-4 w-4" />
+                        </a>
+                        <a
+                            href={urlDescarga}
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
+                            title="Descargar"
+                        >
+                            <Download className="h-4 w-4" />
+                            <span className="hidden sm:inline">Descargar</span>
+                        </a>
+                        <button
+                            onClick={onClose}
+                            className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
+                            title="Cerrar (Esc)"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-hidden p-3">
+                    {tipo === "pdf" || tipo === "texto" ? (
+                        <iframe src={urlVista} className="w-full h-full rounded-xl bg-white" title={doc.nombre} />
+                    ) : tipo === "imagen" ? (
+                        <div className="w-full h-full flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={urlVista} alt={doc.nombre} className="max-w-full max-h-full object-contain rounded-xl" />
+                        </div>
+                    ) : tipo === "video" ? (
+                        <video src={urlVista} controls className="w-full h-full rounded-xl bg-black" />
+                    ) : tipo === "audio" ? (
+                        <div className="py-10 flex justify-center">
+                            <audio src={urlVista} controls className="w-full max-w-xl" />
+                        </div>
+                    ) : (
+                        <div className="py-12 flex flex-col items-center gap-4 text-center">
+                            <FileQuestion className="h-10 w-10 text-slate-600" />
+                            <p className="text-[12px] font-bold text-slate-500 uppercase tracking-widest">
+                                Este tipo de archivo no tiene vista previa en el navegador
+                            </p>
+                            <a
+                                href={urlDescarga}
+                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
+                            >
+                                <Download className="h-4 w-4" /> Descargar {doc.nombreArchivo}
+                            </a>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )

@@ -5,12 +5,12 @@ import {
     Loader2, AlertTriangle, X, Plus, Search, RefreshCw, Download,
     FolderOpen, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon,
     Trash2, Eye, Upload, Folder, FolderPlus, ArrowLeft, ChevronRight, Check,
-    FileArchive, FileVideo, FileAudio, FileCode, Presentation, Info, FolderInput
+    FileArchive, FileVideo, FileAudio, FileCode, Presentation, Info, FolderInput, History
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
 import { DropZone } from "@/components/dashboard/DropZone"
-import { MenuContextual, PropiedadesModal, type OpcionMenu } from "@/components/dashboard/DocumentosMenus"
+import { MenuContextual, PropiedadesModal, VistaPreviaModal, tipoVistaPrevia, type OpcionMenu } from "@/components/dashboard/DocumentosMenus"
 
 interface Documento {
     idDocumento: number
@@ -78,6 +78,7 @@ export default function DocumentosPage() {
     const [menu, setMenu] = useState<{ x: number; y: number; tipo: "area" | "carpeta" | "doc"; doc?: Documento; carpeta?: Carpeta } | null>(null)
     const [propiedades, setPropiedades] = useState<Documento | null>(null)
     const [moverDoc, setMoverDoc] = useState<Documento | null>(null)
+    const [vistaPrevia, setVistaPrevia] = useState<Documento | null>(null)
     const [arrastrandoPanel, setArrastrandoPanel] = useState(false)
     const [carpetaHover, setCarpetaHover] = useState(0)
 
@@ -160,6 +161,12 @@ export default function DocumentosPage() {
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "No fue posible eliminar la carpeta")
         }
+    }
+
+    // Clic en un archivo: vista previa si el navegador lo puede mostrar; si no, descarga
+    const abrirDocumento = (d: Documento) => {
+        if (tipoVistaPrevia(d.nombreArchivo, d.tipoMime)) setVistaPrevia(d)
+        else window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self")
     }
 
     // Mover documento a otra carpeta (arrastrándolo o desde el menú contextual)
@@ -614,19 +621,28 @@ export default function DocumentosPage() {
                                 setMenu({ x: e.clientX, y: e.clientY, tipo: "doc", doc: d })
                             }}
                         >
-                            <a
-                                href={`/api/documentos/${d.idDocumento}/descargar`}
-                                className="h-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-emerald-400/40 transition-all"
-                                title={`${d.nombre}\n${d.nombreArchivo} · ${fmtTamano(d.tamano)}${d.todasTiendas ? "" : "\nSolo tiendas específicas"}\n${d.subidoPor} · ${fmtFechaHora(d.fecha)}\nClic para descargar`}
+                            <button
+                                onClick={() => abrirDocumento(d)}
+                                className="w-full h-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-emerald-400/40 transition-all"
+                                title={`${d.nombre}\n${d.nombreArchivo} · ${fmtTamano(d.tamano)}${d.todasTiendas ? "" : "\nSolo tiendas específicas"}\n${d.subidoPor} · ${fmtFechaHora(d.fecha)}\n${tipoVistaPrevia(d.nombreArchivo, d.tipoMime) ? "Clic para ver la vista previa" : "Clic para descargar"}`}
                             >
                                 <IconoArchivo nombre={d.nombreArchivo} mime={d.tipoMime} clase="h-10 w-10" />
                                 <span className="text-[12px] font-black text-slate-200 w-full text-center leading-tight line-clamp-2 break-words">
                                     {d.nombre}
                                 </span>
                                 <span className="text-[10px] font-bold text-slate-500">{fmtTamano(d.tamano)}</span>
-                            </a>
+                            </button>
                             {/* Acciones al pasar el cursor, como el borrado de carpetas */}
                             <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                {tipoVistaPrevia(d.nombreArchivo, d.tipoMime) && (
+                                    <button
+                                        onClick={() => setVistaPrevia(d)}
+                                        className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all"
+                                        title="Vista previa"
+                                    >
+                                        <Eye className="h-3.5 w-3.5" />
+                                    </button>
+                                )}
                                 <a
                                     href={`/api/documentos/${d.idDocumento}/descargar`}
                                     className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/40 transition-all"
@@ -641,7 +657,7 @@ export default function DocumentosPage() {
                                             className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all"
                                             title={`${fmtInt(d.descargas)} descargas — ver quién lo ha bajado`}
                                         >
-                                            <Eye className="h-3.5 w-3.5" />
+                                            <History className="h-3.5 w-3.5" />
                                         </button>
                                         <button
                                             onClick={() => retirar(d)}
@@ -870,11 +886,14 @@ export default function DocumentosPage() {
                         if (menu.tipo === "doc" && menu.doc) {
                             const d = menu.doc
                             return [
+                                ...(tipoVistaPrevia(d.nombreArchivo, d.tipoMime) ? [
+                                    { etiqueta: "Ver", icono: <Eye className="h-4 w-4" />, onClick: () => setVistaPrevia(d) },
+                                ] : []),
                                 { etiqueta: "Descargar", icono: <Download className="h-4 w-4" />, onClick: () => window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self") },
                                 { etiqueta: "Propiedades", icono: <Info className="h-4 w-4" />, onClick: () => setPropiedades(d) },
                                 ...(rol === "oficina" ? [
                                     { etiqueta: "Mover a...", icono: <FolderInput className="h-4 w-4" />, onClick: () => setMoverDoc(d) },
-                                    { etiqueta: "Auditoría de descargas", icono: <Eye className="h-4 w-4" />, onClick: () => verAuditoria(d) },
+                                    { etiqueta: "Auditoría de descargas", icono: <History className="h-4 w-4" />, onClick: () => verAuditoria(d) },
                                     { etiqueta: "Retirar", icono: <Trash2 className="h-4 w-4" />, peligro: true, separador: true, onClick: () => retirar(d) },
                                 ] : []),
                             ]
@@ -897,6 +916,11 @@ export default function DocumentosPage() {
                         ]
                     })()}
                 />
+            )}
+
+            {/* Vista previa del documento */}
+            {vistaPrevia && (
+                <VistaPreviaModal doc={vistaPrevia} onClose={() => setVistaPrevia(null)} />
             )}
 
             {/* Propiedades del documento */}
