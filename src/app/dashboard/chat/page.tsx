@@ -293,12 +293,14 @@ export default function ChatPage() {
                             return (
                                 <div key={m.idMensaje} className={cn("flex", mio ? "justify-end" : "justify-start")}>
                                     <div className={cn("max-w-[78%]", mio ? "items-end" : "items-start")}>
-                                        {!mio && (
-                                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-0.5 px-1">
-                                                {m.nombre}
-                                                {tiendas.get(m.idTienda) ? ` · ${tiendas.get(m.idTienda)}` : ""}
-                                            </p>
-                                        )}
+                                        {/* Emisor SIEMPRE visible (también en los globos propios) */}
+                                        <p className={cn(
+                                            "text-[10px] font-black uppercase tracking-wider mb-0.5 px-1",
+                                            mio ? "text-emerald-400/70 text-right" : "text-slate-500"
+                                        )}>
+                                            {m.nombre}
+                                            {tiendas.get(m.idTienda) ? ` · ${tiendas.get(m.idTienda)}` : ""}
+                                        </p>
                                         <div className={cn(
                                             "rounded-2xl px-3.5 py-2.5 border",
                                             mio
