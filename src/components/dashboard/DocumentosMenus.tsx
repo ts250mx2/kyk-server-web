@@ -81,10 +81,14 @@ export interface DocumentoVista {
     tipoMime: string
 }
 
-// Vista previa del documento dentro del portal, con opción de abrir en
-// pestaña nueva o descargar. Para tipos sin vista (Word, Excel, ZIP...) se
-// ofrece la descarga directa.
-export function VistaPreviaModal({ doc, onClose }: { doc: DocumentoVista; onClose: () => void }) {
+// Vista previa del documento dentro del portal. La descarga como archivo
+// solo se ofrece cuando permitirDescarga (rol oficina) — las tiendas
+// únicamente visualizan.
+export function VistaPreviaModal({ doc, permitirDescarga = false, onClose }: {
+    doc: DocumentoVista
+    permitirDescarga?: boolean
+    onClose: () => void
+}) {
     const urlVista = `/api/documentos/${doc.idDocumento}/descargar?vista=1`
     const urlDescarga = `/api/documentos/${doc.idDocumento}/descargar`
     const tipo = tipoVistaPrevia(doc.nombreArchivo, doc.tipoMime)
@@ -119,14 +123,16 @@ export function VistaPreviaModal({ doc, onClose }: { doc: DocumentoVista; onClos
                         >
                             <ExternalLink className="h-4 w-4" />
                         </a>
-                        <a
-                            href={urlDescarga}
-                            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
-                            title="Descargar"
-                        >
-                            <Download className="h-4 w-4" />
-                            <span className="hidden sm:inline">Descargar</span>
-                        </a>
+                        {permitirDescarga && (
+                            <a
+                                href={urlDescarga}
+                                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
+                                title="Descargar"
+                            >
+                                <Download className="h-4 w-4" />
+                                <span className="hidden sm:inline">Descargar</span>
+                            </a>
+                        )}
                         <button
                             onClick={onClose}
                             className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
@@ -157,12 +163,18 @@ export function VistaPreviaModal({ doc, onClose }: { doc: DocumentoVista; onClos
                             <p className="text-[12px] font-bold text-slate-500 uppercase tracking-widest">
                                 Este tipo de archivo no tiene vista previa en el navegador
                             </p>
-                            <a
-                                href={urlDescarga}
-                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
-                            >
-                                <Download className="h-4 w-4" /> Descargar {doc.nombreArchivo}
-                            </a>
+                            {permitirDescarga ? (
+                                <a
+                                    href={urlDescarga}
+                                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
+                                >
+                                    <Download className="h-4 w-4" /> Descargar {doc.nombreArchivo}
+                                </a>
+                            ) : (
+                                <p className="text-[11px] font-bold text-slate-600">
+                                    Los documentos solo se pueden visualizar en el portal
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { portalQuery, esOficina } from '@/lib/portal-db';
-import { guardarArchivo, TAMANO_MAXIMO } from '@/lib/documentos-fs';
+import { TAMANO_MAXIMO } from '@/lib/documentos-fs';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,19 +143,20 @@ export async function POST(request: Request) {
         } catch { destinos = []; }
         const todasTiendas = destinos.length === 0 ? 1 : 0;
 
+        // El binario se guarda EN LA BASE (Contenido LONGBLOB), no en disco.
+        // Nota: el max_allowed_packet del MySQL central debe superar los 25 MB.
         const contenido = Buffer.from(await archivo.arrayBuffer());
-        const nombreFisico = await guardarArchivo(archivo.name, contenido);
 
         const resultado = await portalQuery(`
             INSERT INTO documentos
-                (IdCarpeta, Nombre, NombreArchivo, Archivo, Tamano, TipoMime, TodasTiendas,
+                (IdCarpeta, Nombre, NombreArchivo, Archivo, Contenido, Tamano, TipoMime, TodasTiendas,
                  SubidoPor, SubidoPorNombre, FechaSubida, Status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0)
+            VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, NOW(), 0)
         `, [
             idCarpeta,
             nombre.slice(0, 200),
             archivo.name.slice(0, 255),
-            nombreFisico,
+            contenido,
             archivo.size,
             archivo.type || '',
             todasTiendas,

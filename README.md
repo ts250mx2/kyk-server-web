@@ -222,8 +222,12 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   `PORTAL_OFICINA` (códigos de barras separados por coma) o fila en `portal_usuarios` con
   Rol='oficina'.
 
-- **Comunicación → Documentos** (`/dashboard/documentos`): fase 2 del portal. Repositorio de
-  archivos con **explorador de carpetas al estilo Windows**, con **subcarpetas** (carpetas
+- **Comunicación → Documentos** (`/dashboard/documentos`): fase 2 del portal. Los archivos se
+  guardan **en la base de datos** (`documentos.Contenido LONGBLOB` en BDKYKPortal, migración
+  aditiva; los subidos antes se leen de disco como respaldo — el `max_allowed_packet` del MySQL
+  central debe superar los 25 MB). Las tiendas **solo visualizan** (vista previa inline; el API
+  rechaza la descarga como archivo con 403) — la descarga queda reservada al rol oficina.
+  Repositorio de archivos con **explorador de carpetas al estilo Windows**, con **subcarpetas** (carpetas
   dentro de carpetas, columna `IdCarpetaPadre` con migración aditiva): cuadrícula de carpetas
   con conteo de subcarpetas y documentos, tile "Nueva Carpeta" con captura inline (Enter crea,
   Esc cancela — crea en el nivel abierto), botón de eliminar al pasar el cursor (solo carpetas

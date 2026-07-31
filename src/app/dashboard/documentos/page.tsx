@@ -163,10 +163,14 @@ export default function DocumentosPage() {
         }
     }
 
-    // Clic en un archivo: vista previa si el navegador lo puede mostrar; si no, descarga
+    // Clic en un archivo: vista previa. Las tiendas SOLO visualizan; para
+    // oficina, los tipos sin vista se descargan directo.
     const abrirDocumento = (d: Documento) => {
-        if (tipoVistaPrevia(d.nombreArchivo, d.tipoMime)) setVistaPrevia(d)
-        else window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self")
+        if (rol === "oficina" && !tipoVistaPrevia(d.nombreArchivo, d.tipoMime)) {
+            window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self")
+        } else {
+            setVistaPrevia(d)
+        }
     }
 
     // Mover documento a otra carpeta (arrastrándolo o desde el menú contextual)
@@ -624,7 +628,7 @@ export default function DocumentosPage() {
                             <button
                                 onClick={() => abrirDocumento(d)}
                                 className="w-full h-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-emerald-400/40 transition-all"
-                                title={`${d.nombre}\n${d.nombreArchivo} · ${fmtTamano(d.tamano)}${d.todasTiendas ? "" : "\nSolo tiendas específicas"}\n${d.subidoPor} · ${fmtFechaHora(d.fecha)}\n${tipoVistaPrevia(d.nombreArchivo, d.tipoMime) ? "Clic para ver la vista previa" : "Clic para descargar"}`}
+                                title={`${d.nombre}\n${d.nombreArchivo} · ${fmtTamano(d.tamano)}${d.todasTiendas ? "" : "\nSolo tiendas específicas"}\n${d.subidoPor} · ${fmtFechaHora(d.fecha)}\n${tipoVistaPrevia(d.nombreArchivo, d.tipoMime) || rol !== "oficina" ? "Clic para ver" : "Clic para descargar"}`}
                             >
                                 <IconoArchivo nombre={d.nombreArchivo} mime={d.tipoMime} clase="h-10 w-10" />
                                 <span className="text-[12px] font-black text-slate-200 w-full text-center leading-tight line-clamp-2 break-words">
@@ -634,24 +638,22 @@ export default function DocumentosPage() {
                             </button>
                             {/* Acciones al pasar el cursor, como el borrado de carpetas */}
                             <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                {tipoVistaPrevia(d.nombreArchivo, d.tipoMime) && (
-                                    <button
-                                        onClick={() => setVistaPrevia(d)}
-                                        className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all"
-                                        title="Vista previa"
-                                    >
-                                        <Eye className="h-3.5 w-3.5" />
-                                    </button>
-                                )}
-                                <a
-                                    href={`/api/documentos/${d.idDocumento}/descargar`}
-                                    className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/40 transition-all"
-                                    title="Descargar"
+                                <button
+                                    onClick={() => setVistaPrevia(d)}
+                                    className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all"
+                                    title="Vista previa"
                                 >
-                                    <Download className="h-3.5 w-3.5" />
-                                </a>
+                                    <Eye className="h-3.5 w-3.5" />
+                                </button>
                                 {rol === "oficina" && (
                                     <>
+                                        <a
+                                            href={`/api/documentos/${d.idDocumento}/descargar`}
+                                            className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/40 transition-all"
+                                            title="Descargar"
+                                        >
+                                            <Download className="h-3.5 w-3.5" />
+                                        </a>
                                         <button
                                             onClick={() => verAuditoria(d)}
                                             className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all"
@@ -886,10 +888,10 @@ export default function DocumentosPage() {
                         if (menu.tipo === "doc" && menu.doc) {
                             const d = menu.doc
                             return [
-                                ...(tipoVistaPrevia(d.nombreArchivo, d.tipoMime) ? [
-                                    { etiqueta: "Ver", icono: <Eye className="h-4 w-4" />, onClick: () => setVistaPrevia(d) },
+                                { etiqueta: "Ver", icono: <Eye className="h-4 w-4" />, onClick: () => setVistaPrevia(d) },
+                                ...(rol === "oficina" ? [
+                                    { etiqueta: "Descargar", icono: <Download className="h-4 w-4" />, onClick: () => window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self") },
                                 ] : []),
-                                { etiqueta: "Descargar", icono: <Download className="h-4 w-4" />, onClick: () => window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self") },
                                 { etiqueta: "Propiedades", icono: <Info className="h-4 w-4" />, onClick: () => setPropiedades(d) },
                                 ...(rol === "oficina" ? [
                                     { etiqueta: "Mover a...", icono: <FolderInput className="h-4 w-4" />, onClick: () => setMoverDoc(d) },
@@ -920,7 +922,11 @@ export default function DocumentosPage() {
 
             {/* Vista previa del documento */}
             {vistaPrevia && (
-                <VistaPreviaModal doc={vistaPrevia} onClose={() => setVistaPrevia(null)} />
+                <VistaPreviaModal
+                    doc={vistaPrevia}
+                    permitirDescarga={rol === "oficina"}
+                    onClose={() => setVistaPrevia(null)}
+                />
             )}
 
             {/* Propiedades del documento */}

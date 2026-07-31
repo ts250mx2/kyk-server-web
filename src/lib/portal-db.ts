@@ -62,6 +62,7 @@ const TABLAS = [
         Nombre VARCHAR(200) NOT NULL,
         NombreArchivo VARCHAR(255) NOT NULL,
         Archivo VARCHAR(255) NOT NULL,
+        Contenido LONGBLOB NULL,
         Tamano BIGINT NOT NULL DEFAULT 0,
         TipoMime VARCHAR(100) NOT NULL DEFAULT '',
         TodasTiendas TINYINT NOT NULL DEFAULT 1,
@@ -118,6 +119,9 @@ const TABLAS = [
 // (columna duplicada) significa que la migración ya corrió y se ignora.
 const MIGRACIONES = [
     `ALTER TABLE documentos_carpetas ADD COLUMN IdCarpetaPadre INT NOT NULL DEFAULT 0`,
+    // El binario del documento vive en la base; los subidos antes de esta
+    // migración se siguen leyendo de disco como respaldo
+    `ALTER TABLE documentos ADD COLUMN Contenido LONGBLOB NULL`,
 ];
 
 let esquemaListo: Promise<void> | null = null;
