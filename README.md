@@ -278,7 +278,13 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   `evaluaciones_resultados`; el usuario ve su mejor calificación e intentos, y oficina ve
   quién la presentó (conteo, promedio y detalle por persona/tienda) y puede **regenerar** el
   cuestionario. La generación es perezosa: el primer "Presentar" de un documento la crea y las
-  siguientes personas reutilizan el mismo cuestionario.
+  siguientes personas reutilizan el mismo cuestionario. El panel muestra el **nombre del
+  evaluado** (chip en el encabezado, en el quiz y en el resultado); al terminar se puede
+  **Imprimir PDF** — constancia con datos del evaluado, calificación, repaso pregunta por
+  pregunta con explicación y líneas de firma evaluado/supervisor
+  ([src/lib/evaluacion-pdf.ts](src/lib/evaluacion-pdf.ts)). Oficina tiene además el botón
+  **Reporte**: todos los intentos de todas las evaluaciones (`/api/evaluaciones/reporte`) con
+  filtro por evaluación, búsqueda por usuario/tienda, promedio y exportación a PDF/Excel.
   **Bot de existencias**: en los canales de sucursal (tienda↔oficina), si un mensaje pide
   existencias ("existencias de...", "stock", "cuánto queda de..."), KESITO 🧀 responde en el
   mismo canal con la existencia **de la tienda del canal** (no la del que pregunta): extrae el
