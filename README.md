@@ -264,10 +264,17 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
 
 - **Comunicación → Chat → canal A.D.iA.N** (📚, violeta): **Asistente Documental con IA** —
   segundo agente del chat, responde SOLO leyendo los documentos subidos al portal (respetando
-  la visibilidad por tienda) y cita la fuente por nombre. Herramientas: `listar_documentos` y
-  `leer_documento` con extracción de texto **local** ([src/lib/extraer-texto.ts](src/lib/extraer-texto.ts)):
-  PDF con pdf-parse, Word (.docx) con mammoth, Excel/CSV con SheetJS y texto plano — nada sale
-  a servicios externos; texto cacheado en memoria y recortado a 18k caracteres por documento.
+  la visibilidad por tienda) y cita la fuente por nombre. Herramientas: `listar_documentos`
+  (con **resumen automático** por documento, generado con Haiku al subir y guardado en
+  `documentos.Resumen` — el modelo elige qué leer por significado), `buscar_en_documentos`
+  (búsqueda por contenido sobre los chunks, con fragmentos alrededor de cada coincidencia y
+  backfill perezoso de los históricos) y `leer_documento` **paginado** (~12k caracteres por
+  página, sin perder el final de documentos largos). El texto se extrae UNA vez de forma
+  **local** ([src/lib/extraer-texto.ts](src/lib/extraer-texto.ts): PDF con pdf-parse, Word
+  .docx con mammoth, Excel/CSV con SheetJS, texto plano — nada sale a servicios externos) y
+  se persiste en `documentos_texto` en partes de 3k caracteres
+  ([src/lib/documentos-texto.ts](src/lib/documentos-texto.ts)). Límite de subida configurable
+  con `DOCUMENTOS_MAX_MB` (default 50; el `max_allowed_packet` del central debe superarlo).
   Mismo protocolo streaming NDJSON, rate limit y prompt caching que Kesito; el panel de ambos
   agentes es el componente genérico [src/components/dashboard/AgenteChat.tsx](src/components/dashboard/AgenteChat.tsx)
   (acentos ámbar/violeta, conversación en sessionStorage por tienda+usuario).
