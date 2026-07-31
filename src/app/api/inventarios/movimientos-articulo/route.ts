@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { tiendaQuery } from '@/lib/tienda-db';
+import { mysqlQuery } from '@/lib/mysql';
 import { cargarKits, familiaDetallada, resolverMaestro } from '@/lib/kits';
 
 export const dynamic = 'force-dynamic';
@@ -14,10 +15,24 @@ const num = (v: unknown): number => {
 
 const MAX_MOVIMIENTOS = 800;
 
+// mysql2 regresa DATETIME/DATE como objetos Date: normalizar a 'YYYY-MM-DD
+// HH:mm:ss' — si se usara String() directo, el orden cronológico se rompe
+// (ordenaría "Sat Jul..." alfabéticamente) y la UI recibe fechas ilegibles
+const fechaSql = (v: unknown): string => {
+    if (v instanceof Date) {
+        const p = (n: number) => String(n).padStart(2, '0');
+        return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())} ${p(v.getHours())}:${p(v.getMinutes())}:${p(v.getSeconds())}`;
+    }
+    return String(v ?? '').split('.')[0];
+};
+
 interface Movimiento {
     codigoInterno: number;
     codigoBarras: string;
     fecha: string;
+    tipo: string;
+    folio: string;
+    referencia: string;
     concepto: string;
     mov: number;
     equiv: number;
@@ -70,8 +85,8 @@ export async function GET(request: Request) {
         ] = await Promise.all([
             consulta('ajustes', `
                 SELECT D.CodigoInterno AS Codigo, C.FechaAjuste AS Fecha,
-                       CONCAT('Ajuste de Inventario #', C.IdAjusteInventario) AS Concepto,
-                       D.Exi AS Mov
+                       'Ajuste de Inventario' AS Tipo, C.IdAjusteInventario AS Folio,
+                       '' AS Referencia, D.Exi AS Mov
                 FROM tblDetalleAjustesInventarios D
                 INNER JOIN tblAjustesInventarios C
                         ON D.IdAjusteInventario = C.IdAjusteInventario AND D.IdTienda = C.IdTienda
@@ -79,7 +94,8 @@ export async function GET(request: Request) {
             `, [desde, idTienda, ...codigos]),
             consulta('recibos', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaRecibo AS Fecha,
-                       CONCAT('Recibo Móvil #', B.FolioReciboMovil, ' ', C.Proveedor) AS Concepto,
+                       'Recibo' AS Tipo, B.FolioReciboMovil AS Folio,
+                       C.Proveedor AS Referencia,
                        CASE WHEN D.IdTipo = 2 AND RecGranel > 0 THEN RecGranel
                             ELSE CASE WHEN RecGranel = 0 AND D.TipoOperacion <> 1 THEN Rec * A.CantidadCompra
                                       WHEN D.TipoOperacion = 1 THEN Rec
@@ -93,8 +109,8 @@ export async function GET(request: Request) {
             `, [desde, idTienda, ...codigos]),
             consulta('devoluciones de recibo', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaRecibo AS Fecha,
-                       CONCAT('Devolución Recibo #', B.FolioReciboMovil, ' ', C.Proveedor) AS Concepto,
-                       A.Rec * -1 AS Mov
+                       'Devolución de Recibo' AS Tipo, B.FolioReciboMovil AS Folio,
+                       C.Proveedor AS Referencia, A.Rec * -1 AS Mov
                 FROM tblDetalleReciboMovil A
                 INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
                 INNER JOIN tblProveedores C ON B.IdProveedor = C.IdProveedor
@@ -105,8 +121,8 @@ export async function GET(request: Request) {
                 SELECT A.CodigoInterno AS Codigo,
                        (CASE WHEN B.FechaEntrada = '1980-01-01' AND DATEDIFF(Now(), B.FechaSalida) > 2
                              THEN B.FechaSalida ELSE B.FechaEntrada END) AS Fecha,
-                       CONCAT('Transferencia Entrada #', B.FolioSalida) AS Concepto,
-                       A.Mov AS Mov
+                       'Transferencia Entrada' AS Tipo, B.FolioSalida AS Folio,
+                       '' AS Referencia, A.Mov AS Mov
                 FROM tblDetalleTransferenciasSalidas A
                 INNER JOIN tblTransferenciasSalidas B
                         ON A.IdTransferenciaSalida = B.IdTransferenciaSalida AND A.IdTienda = B.IdTienda
@@ -117,8 +133,8 @@ export async function GET(request: Request) {
             `, [idTienda, desde, ...codigos]),
             consulta('transferencias de salida', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaSalida AS Fecha,
-                       CONCAT('Transferencia Salida #', B.FolioSalida) AS Concepto,
-                       A.Mov * -1 AS Mov
+                       'Transferencia Salida' AS Tipo, B.FolioSalida AS Folio,
+                       '' AS Referencia, A.Mov * -1 AS Mov
                 FROM tblDetalleTransferenciasSalidas A
                 INNER JOIN tblTransferenciasSalidas B
                         ON A.IdTransferenciaSalida = B.IdTransferenciaSalida AND A.IdTienda = B.IdTienda
@@ -127,7 +143,9 @@ export async function GET(request: Request) {
             `, [idTienda, desde, ...codigos]),
             consulta('otros movimientos', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaMovimiento AS Fecha,
-                       CONCAT('Movimiento #', A.IdMovimiento, ' ', B.Movimiento) AS Concepto,
+                       CASE WHEN B.TipoMovimiento = 0 THEN 'Otro Movimiento (Entrada)'
+                            ELSE 'Otro Movimiento (Salida)' END AS Tipo,
+                       A.IdMovimiento AS Folio, B.Movimiento AS Referencia,
                        CASE WHEN B.TipoMovimiento = 0 THEN A.Mov ELSE A.Mov * -1 END AS Mov
                 FROM tblDetalleMovimientos2 A
                 INNER JOIN tblMovimientos2 B ON A.IdMovimiento = B.IdMovimiento AND A.IdTienda = B.IdTienda
@@ -136,7 +154,9 @@ export async function GET(request: Request) {
             `, [desde, idTienda, ...codigos]),
             consulta('empacados', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaEmpacado AS Fecha,
-                       CONCAT('Empacado #', A.IdEmpacado, ' ', B.Concepto) AS Concepto,
+                       CASE WHEN B.TipoMovimiento = 0 THEN 'Empacado (Entrada)'
+                            ELSE 'Empacado (Salida)' END AS Tipo,
+                       A.IdEmpacado AS Folio, B.Concepto AS Referencia,
                        CASE WHEN B.TipoMovimiento = 0 THEN A.Cantidad ELSE A.Cantidad * -1 END AS Mov
                 FROM tblDetalleEmpacados2 A
                 INNER JOIN tblEmpacados2 B ON A.IdEmpacado = B.IdEmpacado AND A.IdTienda = B.IdTienda
@@ -144,8 +164,8 @@ export async function GET(request: Request) {
             `, [desde, idTienda, ...codigos]),
             consulta('devoluciones de venta', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaDevolucionVenta AS Fecha,
-                       CONCAT('Devolución Venta #', A.IdDevolucionVenta) AS Concepto,
-                       A.Cantidad AS Mov
+                       'Devolución de Venta' AS Tipo, A.IdDevolucionVenta AS Folio,
+                       '' AS Referencia, A.Cantidad AS Mov
                 FROM tblDetalleDevolucionesVenta A
                 INNER JOIN tblDevolucionesVenta B
                         ON A.IdDevolucionVenta = B.IdDevolucionVenta AND A.IdTienda = B.IdTienda
@@ -154,7 +174,8 @@ export async function GET(request: Request) {
             `, [desde, idTienda, ...codigos]),
             consulta('ventas', `
                 SELECT A.CodigoInterno AS Codigo, DATE(B.FechaVenta) AS Fecha,
-                       'Ventas del día' AS Concepto,
+                       'Ventas del día' AS Tipo, '' AS Folio,
+                       CONCAT(COUNT(DISTINCT CONCAT(A.IdVenta, '-', A.IdComputadora)), ' tickets') AS Referencia,
                        SUM(A.Cantidad) * -1 AS Mov
                 FROM tblDetalleVentas A
                 INNER JOIN tblVentas B ON A.IdVenta = B.IdVenta AND A.IdComputadora = B.IdComputadora
@@ -163,13 +184,15 @@ export async function GET(request: Request) {
             `, [desde, ...codigos]),
             consulta('ventas POS', `
                 SELECT CodigoInterno AS Codigo, DATE(FechaVenta) AS Fecha,
-                       'Ventas POS del día' AS Concepto, SUM(Cantidad) * -1 AS Mov
+                       'Ventas POS del día' AS Tipo, '' AS Folio,
+                       '' AS Referencia, SUM(Cantidad) * -1 AS Mov
                 FROM tblVentasPOS WHERE FechaVenta >= ? AND CodigoInterno IN (${marcas})
                 GROUP BY CodigoInterno, DATE(FechaVenta)
             `, [desde, ...codigos]),
             consulta('facturas CEDIS', `
                 SELECT A.CodigoInterno AS Codigo, B.FechaFactura AS Fecha,
-                       CONCAT('Factura CEDIS ', B.ClienteConcepto) AS Concepto,
+                       'Factura CEDIS' AS Tipo, A.IdFactura AS Folio,
+                       B.ClienteConcepto AS Referencia,
                        A.Cantidad * A.CantidadCompra * -1 AS Mov
                 FROM tblDetalleFacturasCedis A
                 INNER JOIN tblFacturasCedis B ON A.IdFactura = B.IdFactura AND A.IdTienda = B.IdTienda
@@ -178,7 +201,8 @@ export async function GET(request: Request) {
             `, [desde, idTienda, ...codigos]),
             consulta('movimientos SAP', `
                 SELECT CodigoInterno AS Codigo, FechaMovimientoSAP AS Fecha,
-                       Concepto, Mov
+                       'Movimiento SAP' AS Tipo, '' AS Folio,
+                       Concepto AS Referencia, Mov
                 FROM tblMovimientosSAP WHERE FechaMovimientoSAP >= ? AND CodigoInterno IN (${marcas})
             `, [desde, ...codigos]),
         ]);
@@ -200,11 +224,18 @@ export async function GET(request: Request) {
                 const mov = num(r.Mov);
                 if (mov === 0) continue;
                 const factor = familia.get(codigo)?.factor ?? 1;
+                const tipo = String(r.Tipo ?? '').trim();
+                const folio = String(r.Folio ?? '').trim();
+                const referencia = String(r.Referencia ?? '').trim();
                 todos.push({
                     codigoInterno: codigo,
                     codigoBarras: fichas.get(codigo) ?? String(codigo),
-                    fecha: String(r.Fecha ?? '').split('.')[0],
-                    concepto: String(r.Concepto ?? '').trim(),
+                    fecha: fechaSql(r.Fecha),
+                    tipo,
+                    folio,
+                    referencia,
+                    // Compatibilidad con la exportación: todo en una sola cadena
+                    concepto: [tipo, folio && `#${folio}`, referencia].filter(Boolean).join(' '),
                     mov,
                     equiv: mov / factor,
                 });
@@ -212,11 +243,46 @@ export async function GET(request: Request) {
         }
         todos.sort((a, b) => a.fecha.localeCompare(b.fecha));
 
+        // Cierre del día anterior: el corte nocturno del maestro (central), o el
+        // último ajuste de inventario si es más nuevo — igual que la existencia
+        const snapshots = (await mysqlQuery(`
+            SELECT Exi, Fecha FROM tblInventariosCostosActual
+            WHERE IdTienda = ? AND CodigoInterno = ? LIMIT 1
+        `, [idTienda, maestro]).catch(() => [])) as Row[];
+        const snapshot = snapshots?.[0] ?? null;
+        let cierre = snapshot
+            ? {
+                existencia: num(snapshot.Exi),
+                fecha: fechaSql(snapshot.Fecha).slice(0, 10),
+                origen: 'corte' as 'corte' | 'ajuste',
+            }
+            : null;
+        const cierreAjustes = (await tiendaQuery(idTienda, `
+            SELECT D.Exi, C.FechaAjuste
+            FROM tblDetalleAjustesInventarios D
+            INNER JOIN tblAjustesInventarios C
+                    ON D.IdAjusteInventario = C.IdAjusteInventario AND D.IdTienda = C.IdTienda
+            WHERE D.CodigoInterno = ? AND D.IdTienda = ?
+            ORDER BY C.FechaAjuste DESC LIMIT 1
+        `, [maestro, idTienda]).catch(() => [])) as Row[];
+        const cierreAjuste = cierreAjustes?.[0];
+        if (cierreAjuste?.FechaAjuste) {
+            const fechaAjuste = fechaSql(cierreAjuste.FechaAjuste);
+            if (!cierre || fechaAjuste.slice(0, 10) >= cierre.fecha) {
+                cierre = {
+                    existencia: num(cierreAjuste.Exi),
+                    fecha: fechaAjuste.slice(0, 10),
+                    origen: 'ajuste',
+                };
+            }
+        }
+
         const truncado = todos.length > MAX_MOVIMIENTOS;
         return NextResponse.json({
             maestro,
             dias,
             desde: desde.slice(0, 10),
+            cierre,
             truncado,
             // Con truncado se conservan los MÁS RECIENTES (el modal baja al fondo)
             movimientos: truncado ? todos.slice(-MAX_MOVIMIENTOS) : todos,

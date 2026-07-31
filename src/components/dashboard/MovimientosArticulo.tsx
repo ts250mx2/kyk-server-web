@@ -10,9 +10,18 @@ interface Movimiento {
     codigoInterno: number
     codigoBarras: string
     fecha: string
+    tipo: string
+    folio: string
+    referencia: string
     concepto: string
     mov: number
     equiv: number
+}
+
+interface Cierre {
+    existencia: number
+    fecha: string
+    origen: "corte" | "ajuste"
 }
 
 interface ArticuloRef {
@@ -37,6 +46,7 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
     const [cargando, setCargando] = useState(true)
     const [dias, setDias] = useState(30)
     const [desde, setDesde] = useState("")
+    const [cierre, setCierre] = useState<Cierre | null>(null)
     const [truncado, setTruncado] = useState(false)
     const [error, setError] = useState("")
 
@@ -49,6 +59,7 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
                 if (!ok) throw new Error(json.error || "Error al consultar los movimientos")
                 setMovimientos(json.movimientos)
                 setDesde(json.desde ?? "")
+                setCierre(json.cierre ?? null)
                 setTruncado(Boolean(json.truncado))
             })
             .catch((err: unknown) => {
@@ -68,6 +79,7 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
             if (!res.ok) throw new Error(json.error || "Error al consultar los movimientos")
             setMovimientos(json.movimientos)
             setDesde(json.desde ?? "")
+            setCierre(json.cierre ?? null)
             setTruncado(Boolean(json.truncado))
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Error al consultar los movimientos")
@@ -89,19 +101,23 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
         const tienda = await obtenerTiendaSesion()
         exportarExcel({
             titulo: "MOVIMIENTOS DE INVENTARIO",
-            subtitulo: `${articulo.descripcion} · Código ${articulo.codigoBarras} · Últimos ${dias} días · ${fmtInt(movimientos.length)} movimientos`,
+            subtitulo: `${articulo.descripcion} · Código ${articulo.codigoBarras}`
+                + (cierre ? ` · Cierre del ${cierre.fecha}: ${fmtDec(cierre.existencia)}` : "")
+                + ` · Últimos ${dias} días · ${fmtInt(movimientos.length)} movimientos`,
             tienda,
             hoja: "Movimientos",
             nombreArchivo: `movimientos_${articulo.codigoBarras || articulo.codigoInterno}_${sufijoArchivo()}`,
             columnas: [
                 { header: "Fecha" },
+                { header: "Tipo de Movimiento" },
+                { header: "Folio" },
+                { header: "Referencia" },
                 { header: "Código" },
-                { header: "Concepto" },
                 { header: "Movimiento", align: "right" },
                 { header: "Equiv", align: "right" },
             ],
             filas: movimientos.map(m => [
-                fmtFechaHora(m.fecha), m.codigoBarras, m.concepto, m.mov, m.equiv,
+                fmtFechaHora(m.fecha), m.tipo, m.folio, m.referencia, m.codigoBarras, m.mov, m.equiv,
             ]),
         })
     }
@@ -159,6 +175,27 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
                     </div>
                 </div>
 
+                {/* Cómo cerró el día anterior (corte nocturno, o ajuste si es más nuevo) */}
+                {!cargando && cierre && (
+                    <div className="px-6 py-2.5 border-b border-white/[0.06] bg-emerald-500/[0.05] flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-black text-emerald-300/90 uppercase tracking-widest">
+                            Cierre del {cierre.fecha}:
+                        </span>
+                        <span className={cn(
+                            "text-[15px] font-black",
+                            cierre.existencia < 0 ? "text-rose-300" : "text-emerald-300"
+                        )}>
+                            {fmtDec(cierre.existencia)}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-500">
+                            {cierre.origen === "ajuste"
+                                ? "según el último ajuste de inventario"
+                                : "según el corte nocturno de inventario"}
+                            {" — los movimientos de abajo son posteriores o del período consultado"}
+                        </span>
+                    </div>
+                )}
+
                 {error && (
                     <p className="px-6 py-2 text-[10px] font-black text-rose-300 uppercase tracking-wider">{error}</p>
                 )}
@@ -179,9 +216,11 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
                             <table className="w-full">
                                 <thead className="sticky top-0 z-10 bg-[#141a28]">
                                     <tr>
-                                        <th className={cn(lbl, "px-4 py-2.5 text-left")}>Fecha</th>
+                                        <th className={cn(lbl, "px-4 py-2.5 text-left")}>Fecha y Hora</th>
+                                        <th className={cn(lbl, "px-4 py-2.5 text-left")}>Tipo de Movimiento</th>
+                                        <th className={cn(lbl, "px-4 py-2.5 text-left")}>Folio</th>
+                                        <th className={cn(lbl, "px-4 py-2.5 text-left")}>Referencia</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-left")}>Código</th>
-                                        <th className={cn(lbl, "px-4 py-2.5 text-left")}>Concepto</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-right")}>Movimiento</th>
                                         <th className={cn(lbl, "px-4 py-2.5 text-right")} title="Equivalencia en unidades del maestro">Equiv</th>
                                     </tr>
@@ -190,10 +229,19 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
                                     {movimientos.map((m, i) => (
                                         <tr key={i} className="hover:bg-white/[0.03]">
                                             <td className="px-4 py-2 text-[12px] font-bold text-slate-400 whitespace-nowrap">{fmtFechaHora(m.fecha)}</td>
-                                            <td className="px-4 py-2 text-[12px] font-black text-cyan-300 whitespace-nowrap">{m.codigoBarras}</td>
-                                            <td className="px-4 py-2 text-[12px] font-bold text-slate-300 max-w-[320px] truncate" title={m.concepto}>
-                                                {m.concepto || "—"}
+                                            <td className={cn(
+                                                "px-4 py-2 text-[12px] font-black whitespace-nowrap",
+                                                m.mov < 0 ? "text-rose-300/90" : "text-emerald-300/90"
+                                            )}>
+                                                {m.tipo || "—"}
                                             </td>
+                                            <td className="px-4 py-2 text-[12px] font-black text-amber-300 whitespace-nowrap">
+                                                {m.folio || "—"}
+                                            </td>
+                                            <td className="px-4 py-2 text-[12px] font-bold text-slate-300 max-w-[220px] truncate" title={m.referencia}>
+                                                {m.referencia || "—"}
+                                            </td>
+                                            <td className="px-4 py-2 text-[12px] font-black text-cyan-300 whitespace-nowrap">{m.codigoBarras}</td>
                                             <td className={cn(
                                                 "px-4 py-2 text-[13px] font-black text-right whitespace-nowrap",
                                                 m.mov < 0 ? "text-rose-300" : "text-emerald-300"

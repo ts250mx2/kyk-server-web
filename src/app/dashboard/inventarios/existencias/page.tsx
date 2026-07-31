@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Search, Loader2, AlertTriangle, ScanBarcode, Boxes } from "lucide-react"
+import { Search, Loader2, AlertTriangle, ScanBarcode, Boxes, History } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt, fmtFechaHora } from "@/lib/format"
+import { MovimientosArticuloModal } from "@/components/dashboard/MovimientosArticulo"
 
 interface ArticuloItem {
     codigoInterno: number
@@ -72,6 +73,8 @@ export default function ExistenciasPage() {
     // Día bajo el cursor en la gráfica, para la lectura de fecha + existencia
     const [puntoActivo, setPuntoActivo] = useState<PuntoHistorico | null>(null)
     const [error, setError] = useState("")
+    // Modal de movimientos detallados (cierre del día anterior + hora/tipo/folio)
+    const [verMovimientos, setVerMovimientos] = useState(false)
 
     const entradaRef = useRef<HTMLInputElement>(null)
 
@@ -305,11 +308,20 @@ export default function ExistenciasPage() {
                         </div>
                     </div>
 
-                    <p className="text-[12px] font-bold text-slate-400">
-                        Desglose: base <span className="text-slate-200 font-black">{fmtDec(existencia.corte.base)}</span>
-                        {" + "}<span className="text-emerald-300 font-black">{fmtDec(existencia.desdeElCorte.entradas)}</span> entradas
-                        {" − "}<span className="text-rose-300 font-black">{fmtDec(existencia.desdeElCorte.salidas)}</span> salidas desde el corte
-                    </p>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <p className="text-[12px] font-bold text-slate-400">
+                            Desglose: base <span className="text-slate-200 font-black">{fmtDec(existencia.corte.base)}</span>
+                            {" + "}<span className="text-emerald-300 font-black">{fmtDec(existencia.desdeElCorte.entradas)}</span> entradas
+                            {" − "}<span className="text-rose-300 font-black">{fmtDec(existencia.desdeElCorte.salidas)}</span> salidas desde el corte
+                        </p>
+                        <button
+                            onClick={() => setVerMovimientos(true)}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest bg-white/[0.05] border border-white/10 text-slate-300 hover:text-emerald-300 hover:border-emerald-500/30 transition-all"
+                            title="Cierre del día anterior y movimientos con hora, tipo y folio"
+                        >
+                            <History className="h-3.5 w-3.5" /> Ver movimientos
+                        </button>
+                    </div>
 
                     {existencia.advertencias.length > 0 && (
                         <p className="text-[11px] font-bold text-amber-300/80">
@@ -452,6 +464,18 @@ export default function ExistenciasPage() {
                         Escanea o busca un artículo para ver su existencia
                     </p>
                 </div>
+            )}
+
+            {/* Movimientos detallados: cierre del día anterior + hora/tipo/folio */}
+            {verMovimientos && existencia && (
+                <MovimientosArticuloModal
+                    articulo={{
+                        codigoInterno: existencia.articulo.codigoInterno,
+                        codigoBarras: existencia.articulo.codigoBarras,
+                        descripcion: existencia.articulo.descripcion,
+                    }}
+                    onClose={() => setVerMovimientos(false)}
+                />
             )}
         </div>
     )
