@@ -220,7 +220,9 @@ function ContenidoAnalisis({ onClose, context }: {
                 </div>
 
                 <div className="px-6 py-3 border-t border-white/10 flex items-center justify-between">
-                    <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Generado por Kesito IA</p>
+                    <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                        Generado por Kesito IA · <span className="normal-case">Claude Sonnet 5</span>
+                    </p>
                     <button
                         onClick={onClose}
                         className="px-4 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-300 hover:text-white font-black text-[11px] uppercase tracking-widest transition-all"

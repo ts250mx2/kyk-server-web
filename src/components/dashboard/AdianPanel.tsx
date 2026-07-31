@@ -12,6 +12,7 @@ export function AdianPanel({ claveSesion }: { claveSesion: string }) {
                 nombre: "A.D.iA.N",
                 emoji: "📚",
                 subtitulo: "Asistente Documental · responde con los documentos del portal",
+                modelo: "Claude Sonnet 5",
                 endpoint: "/api/chat/adian",
                 prefijoStorage: "adian-conversacion",
                 acento: "violeta",

@@ -12,6 +12,7 @@ export function KesitoPanel({ claveSesion }: { claveSesion: string }) {
                 nombre: "Kesito",
                 emoji: "🧀",
                 subtitulo: "Agente de tu tienda · conversación privada",
+                modelo: "Claude Sonnet 5",
                 endpoint: "/api/chat/kesito",
                 prefijoStorage: "kesito-conversacion",
                 acento: "ambar",
