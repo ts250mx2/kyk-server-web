@@ -25,6 +25,7 @@ export function FotoProducto({ codigoBarras, descripcion, esOficina }: {
     const [sinImagen, setSinImagen] = useState(false)
     const [ocupado, setOcupado] = useState(false)
     const [error, setError] = useState("")
+    const [ampliada, setAmpliada] = useState(false)
 
     const [modalAbierto, setModalAbierto] = useState(false)
     const [sugerencias, setSugerencias] = useState<Sugerencia[]>([])
@@ -37,7 +38,16 @@ export function FotoProducto({ codigoBarras, descripcion, esOficina }: {
     useEffect(() => {
         setSinImagen(false)
         setError("")
+        setAmpliada(false)
     }, [codigoBarras])
+
+    // Esc cierra la imagen ampliada
+    useEffect(() => {
+        if (!ampliada) return
+        const alTeclear = (e: KeyboardEvent) => { if (e.key === "Escape") setAmpliada(false) }
+        window.addEventListener("keydown", alTeclear)
+        return () => window.removeEventListener("keydown", alTeclear)
+    }, [ampliada])
 
     const recargar = () => {
         setSinImagen(false)
@@ -127,15 +137,48 @@ export function FotoProducto({ codigoBarras, descripcion, esOficina }: {
                 {sinImagen ? (
                     <ImageOff className="h-6 w-6 text-slate-700" />
                 ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
+                    <button
+                        onClick={() => setAmpliada(true)}
+                        className="w-full h-full cursor-zoom-in"
+                        title="Ver en grande"
+                        aria-label="Ampliar la foto del producto"
+                    >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={`/api/articulos/imagen/${encodeURIComponent(codigoBarras)}?v=${version}`}
+                            alt={descripcion}
+                            className="w-full h-full object-contain"
+                            onError={() => setSinImagen(true)}
+                        />
+                    </button>
+                )}
+            </div>
+
+            {/* Lightbox: la foto en grande (clic o Esc para cerrar) */}
+            {ampliada && !sinImagen && (
+                <div
+                    className="fixed inset-0 z-[90] bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 cursor-zoom-out"
+                    onClick={() => setAmpliada(false)}
+                >
+                    <button
+                        onClick={() => setAmpliada(false)}
+                        className="absolute top-4 right-4 p-2 rounded-xl bg-white/10 border border-white/15 text-slate-300 hover:text-white transition-all"
+                        aria-label="Cerrar"
+                    >
+                        <X className="h-5 w-5" />
+                    </button>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src={`/api/articulos/imagen/${encodeURIComponent(codigoBarras)}?v=${version}`}
                         alt={descripcion}
-                        className="w-full h-full object-contain"
-                        onError={() => setSinImagen(true)}
+                        className="max-h-[82vh] max-w-[92vw] object-contain rounded-2xl bg-white/[0.04] border border-white/10 shadow-2xl shadow-black/60"
                     />
-                )}
-            </div>
+                    <p className="mt-4 text-[13px] font-bold text-slate-200 text-center max-w-2xl">
+                        {descripcion}
+                        <span className="block text-[11px] font-bold text-slate-500 mt-1">{codigoBarras}</span>
+                    </p>
+                </div>
+            )}
 
             {esOficina && (
                 <div className="flex items-center gap-1">
