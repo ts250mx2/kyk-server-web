@@ -105,7 +105,7 @@ const TABLAS = [
         Imagen VARCHAR(255) NOT NULL DEFAULT '',
         FechaEnvio DATETIME NOT NULL,
         KEY idx_canal (Canal, IdMensaje)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS adian_preguntas (
         IdPregunta INT AUTO_INCREMENT PRIMARY KEY,
         IdTienda INT NOT NULL DEFAULT 0,
@@ -141,6 +141,9 @@ const MIGRACIONES = [
     `ALTER TABLE documentos ADD COLUMN Contenido LONGBLOB NULL`,
     // Resumen automático (Haiku) para que A.D.iA.N elija documentos por significado
     `ALTER TABLE documentos ADD COLUMN Resumen TEXT NULL`,
+    // Emojis en el chat (🧀📦😀 son de 4 bytes): utf8 de MySQL solo guarda 3 y
+    // los volvía "?". Idempotente: re-convertir una tabla ya en utf8mb4 no falla.
+    `ALTER TABLE chat_mensajes CONVERT TO CHARACTER SET utf8mb4`,
 ];
 
 let esquemaListo: Promise<void> | null = null;

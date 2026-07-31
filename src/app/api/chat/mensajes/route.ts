@@ -3,6 +3,7 @@ import { getSession } from '@/lib/session';
 import { portalQuery } from '@/lib/portal-db';
 import { puedeVerCanal } from '@/lib/chat';
 import { guardarArchivo, TAMANO_MAXIMO_IMAGEN } from '@/lib/documentos-fs';
+import { preguntaExistencias, responderExistenciasEnCanal } from '@/lib/chat-bot';
 
 export const dynamic = 'force-dynamic';
 
@@ -138,6 +139,15 @@ export async function POST(request: Request) {
                 UltimoLeido = GREATEST(UltimoLeido, VALUES(UltimoLeido)),
                 FechaAct = NOW()
         `, [canal, session.codigobarras, resultado.insertId]).catch(() => { /* no crítica */ });
+
+        // Bot de existencias: en canales de sucursal, una pregunta de existencias
+        // se responde con datos de LA TIENDA DEL CANAL. Sin await: el envío no se
+        // bloquea y la respuesta del bot llega con el siguiente poll (~5 s).
+        if (mensaje && /^tienda-\d+$/.test(canal) && preguntaExistencias(mensaje)) {
+            responderExistenciasEnCanal(canal, mensaje).catch(err =>
+                console.error('Error del bot de existencias del chat:', err)
+            );
+        }
 
         return NextResponse.json({ success: true, idMensaje: resultado.insertId });
     } catch (error) {

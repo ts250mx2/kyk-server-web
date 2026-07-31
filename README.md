@@ -261,6 +261,17 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   canal). Tiempo real por **polling**: mensajes del canal abierto cada 5 s (incremental por
   IdMensaje) y badges cada 15 s — robusto ante los cortes de VPN nocturnos; SSE queda como
   mejora futura. Burbujas con nombre y tienda del emisor, Enter envía, Shift+Enter salto.
+  `chat_mensajes` migrada a **utf8mb4** para que los emojis (4 bytes) no se vuelvan "?".
+  **Bot de existencias**: en los canales de sucursal (tienda↔oficina), si un mensaje pide
+  existencias ("existencias de...", "stock", "cuánto queda de..."), KESITO 🧀 responde en el
+  mismo canal con la existencia **de la tienda del canal** (no la del que pregunta): extrae el
+  producto con Haiku (con respaldo heurístico sin IA), lo busca en el catálogo de esa tienda
+  con relajación progresiva de palabras (descarta las que no existen y suelta la más
+  restrictiva hasta encontrar), y calcula hasta 3 coincidencias con
+  [src/lib/existencias.ts](src/lib/existencias.ts) — el MISMO cálculo de la página de
+  inventarios (corte nocturno + movimientos del día + kits), extraído a librería y
+  parametrizado por tienda ([src/lib/chat-bot.ts](src/lib/chat-bot.ts)). Responde piezas,
+  medida y ~días de venta; corre sin bloquear el envío (la respuesta llega con el poll de 5 s).
 
 - **Comunicación → Chat → canal A.D.iA.N** (📚, violeta): **Asistente Documental con IA** —
   segundo agente del chat, responde SOLO leyendo los documentos subidos al portal (respetando
