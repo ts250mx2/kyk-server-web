@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
-    ChevronDown, Gauge, Maximize2, Mic, MicOff, Minimize2, Play, Repeat,
-    Sparkles, Square, Volume2, X,
+    ChevronDown, Gauge, Keyboard, Maximize2, Mic, MicOff, Minimize2, Play,
+    Repeat, Sparkles, Square, Volume2, X,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -429,6 +429,14 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
                         <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                         {estado === "idle" ? "En línea" : ETIQUETA_ESTADO[estado]}
                     </span>
+                    {/* Regreso explícito al chat de texto (la conversación es la misma) */}
+                    <button
+                        onClick={cerrar}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-white/[0.05] border border-white/15 text-slate-300 hover:text-white hover:border-white/30 transition-all"
+                        title="Regresar al chat de texto — la conversación continúa ahí (Esc)"
+                    >
+                        <Keyboard className="w-3.5 h-3.5" /> Modo texto
+                    </button>
                     <button
                         onClick={cerrar}
                         className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
