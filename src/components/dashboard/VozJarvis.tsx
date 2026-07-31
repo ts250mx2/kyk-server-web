@@ -102,10 +102,18 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
     const continuoRef = useRef(false)
     const mensajesRef = useRef(mensajes)
     const iniciarRef = useRef<() => void>(() => { })
+    const menuVocesAbiertoRef = useRef(false)
+    // Props del padre fijadas en refs: el padre las recrea en cada render y si
+    // entraran a deps de un efecto con limpieza, cada mensaje nuevo dispararía
+    // esa limpieza y ABORTARÍA la consulta en curso (la consola quedaba muda)
+    const onAgregarRef = useRef(onAgregar)
+    const onCerrarRef = useRef(onCerrar)
 
     const ponerEstado = (e: Estado) => { estadoRef.current = e; setEstado(e) }
     useEffect(() => { continuoRef.current = continuo }, [continuo])
     useEffect(() => { mensajesRef.current = mensajes }, [mensajes])
+    useEffect(() => { menuVocesAbiertoRef.current = menuVoces }, [menuVoces])
+    useEffect(() => { onAgregarRef.current = onAgregar; onCerrarRef.current = onCerrar })
 
     // ── Voces de síntesis (español; Chrome dispara la lista vacía primero) ──
     useEffect(() => {
@@ -225,7 +233,7 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
         if (!limpia) { ponerEstado("idle"); return }
 
         const historial = mensajesRef.current
-        onAgregar({ rol: "user", texto: limpia })
+        onAgregarRef.current({ rol: "user", texto: limpia })
         setInterim("")
         setBorrador("")
         setFase("")
@@ -250,19 +258,19 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
 
             const textoFinal = respuesta || "No pude completar la consulta, intenta preguntarlo de otra forma."
             setBorrador("")
-            onAgregar({ rol: "assistant", texto: textoFinal })
+            onAgregarRef.current({ rol: "assistant", texto: textoFinal })
             hablar(textoFinal)
         } catch (err: unknown) {
             if (err instanceof SesionExpiradaError) { window.location.href = "/login"; return }
             if (controlador.signal.aborted) { ponerEstado("idle"); return }
             const mensaje = err instanceof Error ? err.message : "El agente no pudo responder, intenta de nuevo."
             setBorrador("")
-            onAgregar({ rol: "assistant", texto: mensaje })
+            onAgregarRef.current({ rol: "assistant", texto: mensaje })
             hablar(mensaje)
         } finally {
             clearTimeout(limite)
         }
-    }, [config.endpoint, onAgregar, hablar])
+    }, [config.endpoint, hablar])
 
     // ── Reconocimiento de voz ──
     const iniciarEscucha = useCallback(() => {
@@ -346,25 +354,26 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
 
     const cerrar = useCallback(() => {
         pararTodo()
-        onCerrar()
-    }, [pararTodo, onCerrar])
+        onCerrarRef.current()
+    }, [pararTodo])
 
-    // Limpieza al desmontar + Escape cierra la consola
+    // Limpieza SOLO al desmontar — nunca en re-renders, porque abortaría la
+    // consulta en curso (deps vacías a propósito)
+    useEffect(() => () => {
+        abortRef.current?.abort()
+        try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
+        try { window.speechSynthesis?.cancel() } catch { /* sin síntesis */ }
+    }, [])
+
+    // Escape: cierra el menú de voces si está abierto; si no, la consola
     useEffect(() => {
         const alTeclear = (e: KeyboardEvent) => {
             if (e.key !== "Escape") return
-            setMenuVoces(abierto => {
-                if (!abierto) cerrar()
-                return false
-            })
+            if (menuVocesAbiertoRef.current) setMenuVoces(false)
+            else cerrar()
         }
         window.addEventListener("keydown", alTeclear)
-        return () => {
-            window.removeEventListener("keydown", alTeclear)
-            abortRef.current?.abort()
-            try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
-            try { window.speechSynthesis?.cancel() } catch { /* sin síntesis */ }
-        }
+        return () => window.removeEventListener("keydown", alTeclear)
     }, [cerrar])
 
     const accionOrbe = () => {
