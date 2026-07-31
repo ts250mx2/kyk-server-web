@@ -296,7 +296,7 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   parametrizado por tienda ([src/lib/chat-bot.ts](src/lib/chat-bot.ts)). Responde piezas,
   medida y ~días de venta; corre sin bloquear el envío (la respuesta llega con el poll de 5 s).
 
-- **Comunicación → Chat → canal A.D.iA.N** (📚, violeta): **Asistente Documental con IA** —
+- **Comunicación → Chat → canal A.D.iA.N** (📚, violeta): **Aprendizaje Dirigido por iA Nativo** —
   segundo agente del chat, responde SOLO leyendo los documentos subidos al portal (respetando
   la visibilidad por tienda) y cita la fuente por nombre. Herramientas: `listar_documentos`
   (con **resumen automático** por documento, generado con Haiku al subir y guardado en

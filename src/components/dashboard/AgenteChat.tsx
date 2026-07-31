@@ -333,7 +333,8 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
                     <h2 className="text-[13px] font-black text-white tracking-widest leading-none flex items-center gap-1.5">
                         {config.nombre} <Sparkles className={cn("h-3 w-3", acento.chispa)} />
                     </h2>
-                    <p className={cn("text-[9px] font-bold uppercase tracking-widest mt-1", acento.sub)}>
+                    {/* Sin `uppercase` CSS: etiquetas como "iA Nativo" conservan su i minúscula */}
+                    <p className={cn("text-[9px] font-bold tracking-widest mt-1", acento.sub)}>
                         {config.subtitulo}
                     </p>
                 </div>

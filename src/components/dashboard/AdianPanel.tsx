@@ -2,8 +2,8 @@
 
 import { AgenteChat } from "@/components/dashboard/AgenteChat"
 
-// A.D.iA.N: Asistente Documental con IA — responde leyendo los documentos
-// subidos al portal (respetando qué puede ver cada tienda) y cita sus fuentes.
+// A.D.iA.N: Aprendizaje Dirigido por iA Nativo — responde leyendo los
+// documentos subidos al portal (respetando qué ve cada tienda) y cita fuentes.
 export function AdianPanel({ claveSesion }: { claveSesion: string }) {
     return (
         <AgenteChat
@@ -11,7 +11,7 @@ export function AdianPanel({ claveSesion }: { claveSesion: string }) {
             config={{
                 nombre: "A.D.iA.N",
                 emoji: "📚",
-                subtitulo: "Asistente Documental · responde con los documentos del portal",
+                subtitulo: "Aprendizaje Dirigido por iA Nativo",
                 endpoint: "/api/chat/adian",
                 prefijoStorage: "adian-conversacion",
                 acento: "violeta",

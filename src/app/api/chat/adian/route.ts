@@ -7,7 +7,7 @@ import { asegurarTexto, buscarEnTextos, obtenerPagina } from '@/lib/documentos-t
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-// A.D.iA.N — Asistente Documental con IA: responde SOLO con el contenido de
+// A.D.iA.N — Aprendizaje Dirigido por iA Nativo: responde SOLO con el contenido de
 // los documentos subidos al portal (respetando la visibilidad por tienda).
 // Mismo protocolo streaming NDJSON que Kesito; sus herramientas listan y leen
 // documentos de BDKYKPortal, con extracción de texto local (PDF/Word/Excel).
@@ -266,7 +266,7 @@ export async function POST(request: Request) {
         }
     };
 
-    const sistema = `Eres A.D.iA.N (Asistente Documental con IA) del portal KYK Server Web, atendiendo a la tienda ${session.tienda}.
+    const sistema = `Eres A.D.iA.N (Aprendizaje Dirigido por iA Nativo) del portal KYK Server Web, atendiendo a la tienda ${session.tienda}.
 
 PERSONALIDAD: hablas como un capacitador amable y cercano. Explicas con tus propias palabras, en tono natural y conversacional, como quien le enseña a un compañero de trabajo — nada de respuestas acartonadas ni puros bullets. Contextualiza ("Mira, según el manual..."), y cuando ayude, cierra ofreciendo profundizar ("¿Quieres que te muestre también cómo...?").
 

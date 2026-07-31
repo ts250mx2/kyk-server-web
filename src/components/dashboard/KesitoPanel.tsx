@@ -13,7 +13,8 @@ export function KesitoPanel({ claveSesion }: { claveSesion: string }) {
                 // CSS (para respetar la i minúscula de A.D.iA.N)
                 nombre: "KESITO",
                 emoji: "🧀",
-                subtitulo: "Agente de tu tienda · conversación privada",
+                // En mayúsculas explícitas (el panel ya no aplica uppercase por CSS)
+                subtitulo: "AGENTE DE TU TIENDA · CONVERSACIÓN PRIVADA",
                 endpoint: "/api/chat/kesito",
                 prefijoStorage: "kesito-conversacion",
                 acento: "ambar",
