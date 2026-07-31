@@ -10,7 +10,7 @@ import {
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
 import { DropZone } from "@/components/dashboard/DropZone"
-import { MenuContextual, PropiedadesModal, VistaPreviaModal, tipoVistaPrevia, type OpcionMenu } from "@/components/dashboard/DocumentosMenus"
+import { MenuContextual, PropiedadesModal, VistaPreviaModal, type OpcionMenu } from "@/components/dashboard/DocumentosMenus"
 
 interface Documento {
     idDocumento: number
@@ -163,15 +163,9 @@ export default function DocumentosPage() {
         }
     }
 
-    // Clic en un archivo: vista previa. Las tiendas SOLO visualizan; para
-    // oficina, los tipos sin vista se descargan directo.
-    const abrirDocumento = (d: Documento) => {
-        if (rol === "oficina" && !tipoVistaPrevia(d.nombreArchivo, d.tipoMime)) {
-            window.open(`/api/documentos/${d.idDocumento}/descargar`, "_self")
-        } else {
-            setVistaPrevia(d)
-        }
-    }
+    // Clic en un archivo: SIEMPRE vista previa. La descarga (solo oficina)
+    // va únicamente por el menú del clic derecho.
+    const abrirDocumento = (d: Documento) => setVistaPrevia(d)
 
     // Mover documento a otra carpeta (arrastrándolo o desde el menú contextual)
     const mover = async (idDocumento: number, idCarpeta: number) => {
@@ -628,7 +622,7 @@ export default function DocumentosPage() {
                             <button
                                 onClick={() => abrirDocumento(d)}
                                 className="w-full h-full flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.07] hover:border-emerald-400/40 transition-all"
-                                title={`${d.nombre}\n${d.nombreArchivo} · ${fmtTamano(d.tamano)}${d.todasTiendas ? "" : "\nSolo tiendas específicas"}\n${d.subidoPor} · ${fmtFechaHora(d.fecha)}\n${tipoVistaPrevia(d.nombreArchivo, d.tipoMime) || rol !== "oficina" ? "Clic para ver" : "Clic para descargar"}`}
+                                title={`${d.nombre}\n${d.nombreArchivo} · ${fmtTamano(d.tamano)}${d.todasTiendas ? "" : "\nSolo tiendas específicas"}\n${d.subidoPor} · ${fmtFechaHora(d.fecha)}\nClic para ver · clic derecho para más opciones`}
                             >
                                 <IconoArchivo nombre={d.nombreArchivo} mime={d.tipoMime} clase="h-10 w-10" />
                                 <span className="text-[12px] font-black text-slate-200 w-full text-center leading-tight line-clamp-2 break-words">
@@ -647,13 +641,6 @@ export default function DocumentosPage() {
                                 </button>
                                 {rol === "oficina" && (
                                     <>
-                                        <a
-                                            href={`/api/documentos/${d.idDocumento}/descargar`}
-                                            className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/40 transition-all"
-                                            title="Descargar"
-                                        >
-                                            <Download className="h-3.5 w-3.5" />
-                                        </a>
                                         <button
                                             onClick={() => verAuditoria(d)}
                                             className="p-1.5 rounded-lg bg-black/50 border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all"

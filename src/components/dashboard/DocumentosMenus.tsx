@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { X, Download, ExternalLink, FileQuestion } from "lucide-react"
+import { X, ExternalLink, FileQuestion } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
 
@@ -90,7 +90,6 @@ export function VistaPreviaModal({ doc, permitirDescarga = false, onClose }: {
     onClose: () => void
 }) {
     const urlVista = `/api/documentos/${doc.idDocumento}/descargar?vista=1`
-    const urlDescarga = `/api/documentos/${doc.idDocumento}/descargar`
     const tipo = tipoVistaPrevia(doc.nombreArchivo, doc.tipoMime)
 
     useEffect(() => {
@@ -123,16 +122,6 @@ export function VistaPreviaModal({ doc, permitirDescarga = false, onClose }: {
                         >
                             <ExternalLink className="h-4 w-4" />
                         </a>
-                        {permitirDescarga && (
-                            <a
-                                href={urlDescarga}
-                                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
-                                title="Descargar"
-                            >
-                                <Download className="h-4 w-4" />
-                                <span className="hidden sm:inline">Descargar</span>
-                            </a>
-                        )}
                         <button
                             onClick={onClose}
                             className="p-2 rounded-xl bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white transition-all"
@@ -163,18 +152,11 @@ export function VistaPreviaModal({ doc, permitirDescarga = false, onClose }: {
                             <p className="text-[12px] font-bold text-slate-500 uppercase tracking-widest">
                                 Este tipo de archivo no tiene vista previa en el navegador
                             </p>
-                            {permitirDescarga ? (
-                                <a
-                                    href={urlDescarga}
-                                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest hover:brightness-110 transition-all"
-                                >
-                                    <Download className="h-4 w-4" /> Descargar {doc.nombreArchivo}
-                                </a>
-                            ) : (
-                                <p className="text-[11px] font-bold text-slate-600">
-                                    Los documentos solo se pueden visualizar en el portal
-                                </p>
-                            )}
+                            <p className="text-[11px] font-bold text-slate-600">
+                                {permitirDescarga
+                                    ? "Usa clic derecho sobre el archivo → Descargar para obtenerlo"
+                                    : "Los documentos solo se pueden visualizar en el portal"}
+                            </p>
                         </div>
                     )}
                 </div>
