@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { FileSpreadsheet, Loader2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora } from "@/lib/format"
@@ -95,6 +95,29 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
         const el = contenedorRef.current
         if (el) el.scrollTop = el.scrollHeight
     }, [cargando, movimientos])
+
+    // Posición cronológica del cierre dentro de la lista: los movimientos
+    // anteriores ya están incluidos en esa cifra; los posteriores todavía no
+    let indiceCierre = -1
+    if (cierre) {
+        const i = movimientos.findIndex(m => m.fecha >= cierre.fecha)
+        indiceCierre = i === -1 ? movimientos.length : i
+    }
+
+    const filaCierre = cierre ? (
+        <tr className="bg-emerald-500/[0.10]">
+            <td colSpan={7} className="px-4 py-2.5 border-y border-emerald-500/30">
+                <p className="text-[11px] font-black text-emerald-300 uppercase tracking-widest text-center">
+                    ⬆ Ya incluidos en el cierre &nbsp;·&nbsp; Cierre del {cierre.fecha}
+                    {cierre.origen === "ajuste" ? " (ajuste)" : " (corte nocturno)"}:{" "}
+                    <span className={cn("text-[14px]", cierre.existencia < 0 ? "text-rose-300" : "text-emerald-200")}>
+                        {fmtDec(cierre.existencia)}
+                    </span>
+                    &nbsp;·&nbsp; Posteriores al cierre ⬇
+                </p>
+            </td>
+        </tr>
+    ) : null
 
     const exportar = async () => {
         if (movimientos.length === 0) return
@@ -191,7 +214,7 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
                             {cierre.origen === "ajuste"
                                 ? "según el último ajuste de inventario"
                                 : "según el corte nocturno de inventario"}
-                            {" — los movimientos de abajo son posteriores o del período consultado"}
+                            {" — la línea verde de la lista marca el cierre: lo de arriba ya está contado en esa cifra, lo de abajo aún no"}
                         </span>
                     </div>
                 )}
@@ -227,7 +250,9 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
                                 </thead>
                                 <tbody className="divide-y divide-white/[0.04]">
                                     {movimientos.map((m, i) => (
-                                        <tr key={i} className="hover:bg-white/[0.03]">
+                                        <Fragment key={i}>
+                                        {i === indiceCierre && filaCierre}
+                                        <tr className="hover:bg-white/[0.03]">
                                             <td className="px-4 py-2 text-[12px] font-bold text-slate-400 whitespace-nowrap">{fmtFechaHora(m.fecha)}</td>
                                             <td className={cn(
                                                 "px-4 py-2 text-[12px] font-black whitespace-nowrap",
@@ -255,7 +280,9 @@ export function MovimientosArticuloModal({ articulo, onClose }: {
                                                 {fmtDec(m.equiv)}
                                             </td>
                                         </tr>
+                                        </Fragment>
                                     ))}
+                                    {indiceCierre === movimientos.length && filaCierre}
                                 </tbody>
                             </table>
                         </div>
