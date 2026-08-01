@@ -32,6 +32,8 @@ interface Existencia {
         snapshotFecha: string | null
     }
     desdeElCorte: { entradas: number; salidas: number }
+    ultimoInventarioFisico: { fecha: string; exi: number } | null
+    ultimaCaptura: string | null
     variantesKit: number
     variantes: { codigoInterno: number; codigoBarras: string; descripcion: string; nivel: number }[]
     varianteConsultada: { codigoInterno: number; codigoBarras: string; descripcion: string } | null
@@ -322,6 +324,26 @@ export default function ExistenciasPage() {
                             <History className="h-3.5 w-3.5" /> Ver movimientos
                         </button>
                     </div>
+
+                    {/* Antigüedad del último conteo real: delata el arrastre del acumulado */}
+                    {(() => {
+                        const fisico = existencia.ultimoInventarioFisico?.fecha ?? null
+                        const captura = existencia.ultimaCaptura
+                        const reciente = [fisico, captura].filter((f): f is string => Boolean(f)).sort().pop() ?? null
+                        const meses = reciente
+                            ? Math.floor((Date.now() - new Date(`${reciente}T00:00:00`).getTime()) / (30.44 * 24 * 3600 * 1000))
+                            : null
+                        const viejo = meses === null || meses >= 3
+                        return (
+                            <p className={cn("text-[11px] font-bold", viejo ? "text-rose-300/90" : "text-slate-500")}>
+                                Último inventario físico: {fisico ?? "sin registro"}
+                                {captura && ` · última captura/ajuste por movimiento: ${captura}`}
+                                {viejo && (meses === null
+                                    ? " — nunca se ha contado: el acumulado puede traer arrastre de salidas o mermas no registradas"
+                                    : ` — hace ~${meses} meses: el acumulado puede traer arrastre; se recomienda una captura de inventario`)}
+                            </p>
+                        )
+                    })()}
 
                     {existencia.corte.base < 0 && (
                         <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/[0.08] px-4 py-3">

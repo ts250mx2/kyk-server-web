@@ -47,6 +47,8 @@ export interface ExistenciaArticulo {
         snapshotFecha: string | null;
     };
     desdeElCorte: { entradas: number; salidas: number };
+    ultimoInventarioFisico: { fecha: string; exi: number } | null;
+    ultimaCaptura: string | null;
     variantesKit: number;
     variantes: { codigoInterno: number; codigoBarras: string; descripcion: string; nivel: number }[];
     varianteConsultada: { codigoInterno: number; codigoBarras: string; descripcion: string } | null;
@@ -309,6 +311,20 @@ export async function calcularExistencia(
     const existencia = base + entradas - salidas;
     const diasCobertura = pvd > 0 ? existencia / pvd : null;
 
+    // Última corrección manual (captura de inventario o ajustes por movimiento):
+    // son las purgas del acumulado — si están viejas, el saldo puede traer
+    // arrastre de salidas/mermas no registradas
+    const capturas = (await tiendaQuery(idTienda, `
+        SELECT MAX(B.FechaMovimiento) AS Fecha
+        FROM tblDetalleMovimientos2 A
+        INNER JOIN tblMovimientos2 B ON A.IdMovimiento = B.IdMovimiento AND A.IdTienda = B.IdTienda
+        WHERE B.Status = 0 AND A.IdTienda = ? AND A.CodigoInterno IN (${marcas})
+          AND (B.Movimiento LIKE '%captura%' OR B.Movimiento LIKE '%AJUSTE%')
+    `, [idTienda, ...codigos]).catch(() => [])) as Row[];
+    const ultimaCaptura = capturas?.[0]?.Fecha
+        ? fechaTexto(capturas[0].Fecha).slice(0, 10)
+        : null;
+
     return {
         articulo: {
             codigoInterno: num(articulo.CodigoInterno),
@@ -328,6 +344,10 @@ export async function calcularExistencia(
             snapshotFecha: snapshot?.Fecha ? fechaTexto(snapshot.Fecha).slice(0, 10) : null,
         },
         desdeElCorte: { entradas, salidas },
+        ultimoInventarioFisico: ajuste?.FechaAjuste
+            ? { fecha: fechaTexto(ajuste.FechaAjuste).slice(0, 10), exi: num(ajuste.Exi) }
+            : null,
+        ultimaCaptura,
         variantesKit: codigos.length - 1,
         // Cadena completa de variantes (nivel 1 = hija, 2 = nieta...)
         variantes: codigosVariantes
