@@ -1,6 +1,6 @@
 import { tiendaQuery } from './tienda-db';
 import { mysqlQuery } from './mysql';
-import { cargarKits, familiaDetallada, resolverMaestro } from './kits';
+import { cargarKits, familiaDetallada, resolverMaestro, type Kits } from './kits';
 
 // Existencia de UN artículo en UNA tienda, sin recalcular todo el proveedor:
 //   existencia ≈ Exi del corte nocturno (tblInventariosCostosActual del MySQL
@@ -25,7 +25,7 @@ const num = (v: unknown): number => {
 const p2 = (n: number) => String(n).padStart(2, '0');
 const fechaSqlLocal = (d: Date): string =>
     `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-const fechaTexto = (v: unknown): string =>
+export const fechaTexto = (v: unknown): string =>
     v instanceof Date ? fechaSqlLocal(v) : String(v ?? '').split('.')[0];
 
 export interface ExistenciaArticulo {
@@ -371,4 +371,160 @@ export async function calcularExistencia(
             : null,
         advertencias,
     };
+}
+
+/** Deltas de existencia por MAESTRO de TODO el catálogo desde una fecha (los
+ *  movimientos del día del corte en adelante): Map<codigoMaestro, ±unidades>
+ *  con los factores de kits aplicados (Mov/Factor). Ajusta en bloque los
+ *  reportes que parten del corte nocturno (Quiebres, Quiebre de Stock) sin
+ *  recalcular artículo por artículo. Las tablas opcionales o con esquema
+ *  viejo se omiten en silencio: son reportes, no deben tronar por eso. */
+export async function deltasDesdeCorte(
+    idTienda: number,
+    desde: string,
+    kits: Kits
+): Promise<Map<number, number>> {
+    const deltas = new Map<number, number>();
+
+    const aplicar = (rows: Row[], signo: 1 | -1) => {
+        for (const r of rows ?? []) {
+            const codigo = num(r.CodigoInterno);
+            const mov = num(r.Mov);
+            if (codigo <= 0 || mov === 0) continue;
+            const { maestro, factor } = resolverMaestro(codigo, kits);
+            deltas.set(maestro, (deltas.get(maestro) ?? 0) + (signo * mov) / (factor || 1));
+        }
+    };
+
+    const consulta = async (
+        sql: string,
+        params: (string | number)[],
+        sqlViejo?: string
+    ): Promise<Row[]> => {
+        try {
+            return ((await tiendaQuery(idTienda, sql, params)) as Row[]) ?? [];
+        } catch (error) {
+            if ((error as { errno?: number }).errno === 1054 && sqlViejo) {
+                try {
+                    return ((await tiendaQuery(idTienda, sqlViejo, params)) as Row[]) ?? [];
+                } catch { /* esquema aún más viejo: se omite */ }
+            }
+            return [];
+        }
+    };
+
+    const [
+        ventas, ventasPos, recibos, devRecibos, transfEntradas, transfSalidas,
+        movimientos2, empacados, devVenta, cedis, sap,
+    ] = await Promise.all([
+        consulta(`
+            SELECT A.CodigoInterno, SUM(A.Cantidad) AS Mov
+            FROM tblDetalleVentas A
+            INNER JOIN tblVentas B ON A.IdVenta = B.IdVenta AND A.IdComputadora = B.IdComputadora
+            WHERE B.FechaVenta >= ?
+            GROUP BY A.CodigoInterno
+        `, [desde]),
+        consulta(`
+            SELECT CodigoInterno, SUM(Cantidad) AS Mov
+            FROM tblVentasPOS WHERE FechaVenta >= ?
+            GROUP BY CodigoInterno
+        `, [desde]),
+        consulta(`
+            SELECT A.CodigoInterno, SUM(CASE WHEN D.IdTipo = 2 AND RecGranel > 0 THEN RecGranel
+                ELSE CASE WHEN RecGranel = 0 AND D.TipoOperacion <> 1 THEN Rec * A.CantidadCompra
+                          WHEN D.TipoOperacion = 1 THEN Rec
+                          ELSE RecGranel / A.CantidadCompra END END) AS Mov
+            FROM tblDetalleReciboMovil A
+            INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
+            INNER JOIN tblArticulos D ON A.CodigoInterno = D.CodigoInterno
+            WHERE B.Status = 0 AND A.Devolucion = 0 AND B.FechaRecibo >= ? AND A.IdTienda = ?
+            GROUP BY A.CodigoInterno
+        `, [desde, idTienda], `
+            SELECT A.CodigoInterno, SUM(CASE WHEN D.IdTipo = 2 AND RecGranel > 0 THEN RecGranel
+                ELSE CASE WHEN RecGranel = 0 AND D.TipoOperacion <> 1 THEN Rec * A.CantidadCompra
+                          WHEN D.TipoOperacion = 1 THEN Rec
+                          ELSE RecGranel / A.CantidadCompra END END) AS Mov
+            FROM tblDetalleReciboMovil A
+            INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
+            INNER JOIN tblArticulos D ON A.CodigoInterno = D.CodigoInterno
+            WHERE B.Status = 0 AND B.FechaRecibo >= ? AND A.IdTienda = ?
+            GROUP BY A.CodigoInterno
+        `),
+        consulta(`
+            SELECT A.CodigoInterno, SUM(Rec) AS Mov
+            FROM tblDetalleReciboMovil A
+            INNER JOIN tblReciboMovil B ON A.IdReciboMovil = B.IdReciboMovil AND A.IdTienda = B.IdTienda
+            WHERE B.Status = 0 AND A.Devolucion = 1 AND RecGranel = 0 AND B.FechaRecibo >= ?
+              AND A.IdTienda = ?
+            GROUP BY A.CodigoInterno
+        `, [desde, idTienda]),
+        consulta(`
+            SELECT A.CodigoInterno, SUM(A.Mov) AS Mov
+            FROM tblDetalleTransferenciasSalidas A
+            INNER JOIN tblTransferenciasSalidas B
+                    ON A.IdTransferenciaSalida = B.IdTransferenciaSalida AND A.IdTienda = B.IdTienda
+            WHERE B.Status = 0 AND B.IdTiendaDestino = ?
+              AND (CASE WHEN B.FechaEntrada = '1980-01-01' AND DATEDIFF(Now(), B.FechaSalida) > 2
+                        THEN B.FechaSalida ELSE B.FechaEntrada END) >= ?
+            GROUP BY A.CodigoInterno
+        `, [idTienda, desde]),
+        consulta(`
+            SELECT A.CodigoInterno, SUM(A.Mov) AS Mov
+            FROM tblDetalleTransferenciasSalidas A
+            INNER JOIN tblTransferenciasSalidas B
+                    ON A.IdTransferenciaSalida = B.IdTransferenciaSalida AND A.IdTienda = B.IdTienda
+            WHERE B.Status = 0 AND A.IdTienda = ? AND B.FechaSalida >= ?
+            GROUP BY A.CodigoInterno
+        `, [idTienda, desde]),
+        consulta(`
+            SELECT A.CodigoInterno,
+                   SUM(CASE WHEN B.TipoMovimiento = 0 THEN A.Mov ELSE -A.Mov END) AS Mov
+            FROM tblDetalleMovimientos2 A
+            INNER JOIN tblMovimientos2 B ON A.IdMovimiento = B.IdMovimiento AND A.IdTienda = B.IdTienda
+            WHERE B.Status = 0 AND B.FechaMovimiento >= ? AND A.IdTienda = ?
+            GROUP BY A.CodigoInterno
+        `, [desde, idTienda]),
+        consulta(`
+            SELECT A.CodigoInterno,
+                   SUM(CASE WHEN A.TipoMovimiento = 0 THEN A.Cantidad ELSE -A.Cantidad END) AS Mov
+            FROM tblDetalleEmpacados2 A
+            INNER JOIN tblEmpacados2 B ON A.IdEmpacado = B.IdEmpacado AND A.IdTienda = B.IdTienda
+            WHERE B.FechaEmpacado >= ? AND A.IdTienda = ?
+            GROUP BY A.CodigoInterno
+        `, [desde, idTienda]),
+        consulta(`
+            SELECT A.CodigoInterno, SUM(A.Cantidad) AS Mov
+            FROM tblDetalleDevolucionesVenta A
+            INNER JOIN tblDevolucionesVenta B
+                    ON A.IdDevolucionVenta = B.IdDevolucionVenta AND A.IdTienda = B.IdTienda
+            WHERE A.Cantidad > 0 AND B.FechaDevolucionVenta >= ? AND A.IdTienda = ?
+            GROUP BY A.CodigoInterno
+        `, [desde, idTienda]),
+        consulta(`
+            SELECT A.CodigoInterno, SUM(A.Cantidad * A.CantidadCompra) AS Mov
+            FROM tblDetalleFacturasCedis A
+            INNER JOIN tblFacturasCedis B ON A.IdFactura = B.IdFactura AND A.IdTienda = B.IdTienda
+            WHERE B.Status IN (0,1,3) AND B.FechaFactura >= ? AND A.IdTienda = ?
+            GROUP BY A.CodigoInterno
+        `, [desde, idTienda]),
+        consulta(`
+            SELECT CodigoInterno, SUM(Mov) AS Mov
+            FROM tblMovimientosSAP WHERE FechaMovimientoSAP >= ?
+            GROUP BY CodigoInterno
+        `, [desde]),
+    ]);
+
+    aplicar(ventas, -1);
+    aplicar(ventasPos, -1);
+    aplicar(recibos, 1);
+    aplicar(devRecibos, -1);
+    aplicar(transfEntradas, 1);
+    aplicar(transfSalidas, -1);
+    aplicar(movimientos2, 1);   // ya viene con signo por TipoMovimiento
+    aplicar(empacados, 1);      // ya viene con signo por TipoMovimiento
+    aplicar(devVenta, 1);
+    aplicar(cedis, -1);
+    aplicar(sap, 1);            // ya viene con signo
+
+    return deltas;
 }

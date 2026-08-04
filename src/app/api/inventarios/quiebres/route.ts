@@ -3,6 +3,7 @@ import { getSession } from '@/lib/session';
 import { tiendaQuery } from '@/lib/tienda-db';
 import { mysqlQuery } from '@/lib/mysql';
 import { cargarKits, resolverMaestro } from '@/lib/kits';
+import { deltasDesdeCorte, fechaTexto } from '@/lib/existencias';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
             );
         }
 
-        const corteFecha = String(snapshotRows[0].Fecha ?? '').slice(0, 10);
+        const corteFecha = fechaTexto(snapshotRows[0].Fecha).slice(0, 10);
 
         // Kits (regla recursiva del webservice, lib/kits): el corte Fast YA
         // consolida — la fila del maestro incluye a toda su familia. Las filas
@@ -59,12 +60,24 @@ export async function GET(request: Request) {
         // salidas, negativas) y se DESCARTAN: sumarlas al maestro le restaría
         // ventas ya descontadas y generaría quiebres/excesos falsos.
         const kits = await cargarKits(idTienda);
+
+        // Movimientos del día del corte en adelante (recibos, ventas,
+        // transferencias...): sin esto, un artículo recibido HOY seguiría
+        // apareciendo en quiebre aunque ya haya mercancía en piso
+        const deltas = await deltasDesdeCorte(idTienda, `${corteFecha} 00:00:00`, kits)
+            .catch(() => new Map<number, number>());
+
         const baseConsolidada: { codigo: number; exi: number; pvd: number; costo: number }[] = [];
         for (const r of snapshotRows) {
             const codigo = num(r.CodigoInterno);
             const { maestro } = resolverMaestro(codigo, kits);
             if (maestro !== codigo) continue;
-            baseConsolidada.push({ codigo, exi: num(r.Exi), pvd: num(r.PVD), costo: num(r.Costo) });
+            baseConsolidada.push({
+                codigo,
+                exi: num(r.Exi) + (deltas.get(codigo) ?? 0),
+                pvd: num(r.PVD),
+                costo: num(r.Costo),
+            });
         }
 
         // Preselección y orden con datos del central; nombres/estatus al final
