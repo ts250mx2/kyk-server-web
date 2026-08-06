@@ -295,13 +295,22 @@ export async function POST(request: Request) {
     }
 
     const origen = new URL(request.url).origin;
+
+    // Las herramientas heredan la credencial de quien preguntó: cookie en el
+    // navegador y `Authorization: Bearer` en la app handheld, que corre en un
+    // WebView y no puede mandar la cookie del portal. Sin esto, cada consulta
+    // del agente contestaría "No autorizado" desde la app.
+    const credenciales: Record<string, string> = {};
     const cookie = request.headers.get('cookie') ?? '';
+    const autorizacion = request.headers.get('authorization') ?? '';
+    if (cookie) credenciales['cookie'] = cookie;
+    if (autorizacion) credenciales['authorization'] = autorizacion;
 
     const ejecutarHerramienta = async (nombre: string, entrada: Entrada): Promise<string> => {
         const ruta = urlDeHerramienta(nombre, entrada);
         if (!ruta) return JSON.stringify({ error: 'Herramienta desconocida' });
         try {
-            const res = await fetch(`${origen}${ruta}`, { headers: { cookie } });
+            const res = await fetch(`${origen}${ruta}`, { headers: credenciales });
             const json = await res.json();
             if (!res.ok) return JSON.stringify({ error: json.error ?? `HTTP ${res.status}` });
             return JSON.stringify(compactar(json)).slice(0, MAX_RESULTADO);

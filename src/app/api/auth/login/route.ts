@@ -73,6 +73,9 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
             success: true,
+            // El navegador usa la cookie; los clientes nativos (app handheld)
+            // guardan este token y lo mandan como `Authorization: Bearer`.
+            token,
             user: {
                 name: user.Usuario,
                 codigobarras: user.CodigoBarras,

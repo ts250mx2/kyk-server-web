@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from 'jose';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 const SECRET_KEY = new TextEncoder().encode(
     process.env.JWT_SECRET || 'dev-secret-key-replaces-this-in-prod'
@@ -39,12 +39,27 @@ export async function setSessionCookie(token: string) {
     });
 }
 
-export async function getSession(): Promise<SessionPayload | null> {
+/**
+ * Token de la petición: cookie en el navegador y `Authorization: Bearer` en
+ * clientes nativos. La app handheld corre en un WebView cuyo origen es
+ * `https://localhost`, así que una cookie SameSite=Lax nunca le llegaría.
+ */
+async function tokenDeLaPeticion(): Promise<string | null> {
     const cookieStore = await cookies();
-    const token = cookieStore.get(SESSION_COOKIE);
+    const cookie = cookieStore.get(SESSION_COOKIE);
+    if (cookie?.value) return cookie.value;
+
+    const cabeceras = await headers();
+    const autorizacion = cabeceras.get('authorization') ?? '';
+    if (!autorizacion.toLowerCase().startsWith('bearer ')) return null;
+    return autorizacion.slice(7).trim() || null;
+}
+
+export async function getSession(): Promise<SessionPayload | null> {
+    const token = await tokenDeLaPeticion();
     if (!token) return null;
     try {
-        const { payload } = await jwtVerify(token.value, SECRET_KEY);
+        const { payload } = await jwtVerify(token, SECRET_KEY);
         return payload as unknown as SessionPayload;
     } catch {
         return null;
