@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
+import { jsonSeguro } from "@/lib/http"
 import { DropZone } from "@/components/dashboard/DropZone"
 import { MenuContextual, PropiedadesModal, VistaPreviaModal, type OpcionMenu } from "@/components/dashboard/DocumentosMenus"
 
@@ -247,8 +248,8 @@ export default function DocumentosPage() {
                 form.set("tiendas", JSON.stringify(todasTiendas ? [] : [...tiendasSel]))
 
                 const res = await fetch("/api/documentos", { method: "POST", body: form })
-                const json = await res.json()
-                if (!res.ok) throw new Error(json.error || `Error al subir "${archivo.name}"`)
+                const json = await jsonSeguro(res)
+                if (!res.ok) throw new Error(String(json.error || `Error al subir "${archivo.name}"`))
             }
 
             setSubirAbierto(false)

@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt } from "@/lib/format"
+import { jsonSeguro } from "@/lib/http"
 import { KesitoPanel } from "@/components/dashboard/KesitoPanel"
 import { AdianPanel } from "@/components/dashboard/AdianPanel"
 import { EvaluacionesPanel } from "@/components/dashboard/EvaluacionesPanel"
@@ -222,8 +223,8 @@ export default function ChatPage() {
             if (imagen) form.set("imagen", imagen)
 
             const res = await fetch("/api/chat/mensajes", { method: "POST", body: form })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error || "Error al enviar")
+            const json = await jsonSeguro(res)
+            if (!res.ok) throw new Error(String(json.error || "Error al enviar"))
 
             setTexto("")
             adjuntar(null)

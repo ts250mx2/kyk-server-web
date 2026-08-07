@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt, fmtFechaHora, fmtTamano } from "@/lib/format"
+import { jsonSeguro } from "@/lib/http"
 import { DropZone } from "@/components/dashboard/DropZone"
 
 interface Adjunto { idAdjunto: number; nombre: string; tamano: number }
@@ -127,8 +128,8 @@ export default function ComunicadosPage() {
             for (const a of archivos) form.append("adjuntos", a)
 
             const res = await fetch("/api/comunicados", { method: "POST", body: form })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error || "Error al publicar")
+            const json = await jsonSeguro(res)
+            if (!res.ok) throw new Error(String(json.error || "Error al publicar"))
             setNuevoAbierto(false)
             setTitulo(""); setCuerpo(""); setUrgente(false); setVigenteHasta("")
             setTodasTiendas(true); setTiendasSel(new Set()); setArchivos([])

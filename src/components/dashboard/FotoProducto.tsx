@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { ImageOff, Loader2, Search, Trash2, Upload, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { jsonSeguro } from "@/lib/http"
 
 // Foto del producto (detalle de Precios): la sirve /api/articulos/imagen — que
 // resuelve caché en base → Open Food Facts por código de barras. Oficina puede
@@ -65,8 +66,8 @@ export function FotoProducto({ codigoBarras, descripcion, esOficina }: {
                 method: "POST",
                 body: form,
             })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error || "No fue posible subir la imagen")
+            const json = await jsonSeguro(res)
+            if (!res.ok) throw new Error(String(json.error || "No fue posible subir la imagen"))
             recargar()
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "No fue posible subir la imagen")
