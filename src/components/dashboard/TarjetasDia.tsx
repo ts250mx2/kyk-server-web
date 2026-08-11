@@ -44,22 +44,31 @@ export function TarjetasDia() {
     const [noticias, setNoticias] = useState<Noticia[] | null>(null)
     const [errorNoticias, setErrorNoticias] = useState("")
 
-    // Clima: primero la ubicación por IP (ipwho.is, gratuito con CORS); si no
-    // se puede, el servidor usa Monterrey como respaldo
+    // Clima: primero la ubicación por IP (ipwho.is, gratuito con CORS). OJO: la
+    // IP pública de la red suele salir por el proveedor y geolocalizarse en
+    // CDMX; solo se confía en ella si cae en Nuevo León — si no, Monterrey,
+    // que es donde están las tiendas.
     useEffect(() => {
         let activo = true
         const cargar = async () => {
             let lat = ""
             let lon = ""
+            let ciudadDetectada = "Monterrey"
             try {
                 const res = await fetch("https://ipwho.is/", { signal: AbortSignal.timeout(4_000) })
                 const geo = await res.json()
-                if (geo?.success && Number.isFinite(geo.latitude) && Number.isFinite(geo.longitude)) {
+                const region = String(geo?.region ?? "")
+                    .normalize("NFD")
+                    .replace(/[̀-ͯ]/g, "")
+                    .toLowerCase()
+                if (geo?.success && region.includes("nuevo leon")
+                    && Number.isFinite(geo.latitude) && Number.isFinite(geo.longitude)) {
                     lat = String(geo.latitude)
                     lon = String(geo.longitude)
-                    if (activo) setCiudad(String(geo.city ?? ""))
+                    ciudadDetectada = String(geo.city ?? "Monterrey")
                 }
             } catch { /* sin geolocalización: clima de Monterrey */ }
+            if (activo) setCiudad(ciudadDetectada)
             try {
                 const res = await fetch(`/api/dashboard/clima${lat ? `?lat=${lat}&lon=${lon}` : ""}`)
                 const json = await res.json()
