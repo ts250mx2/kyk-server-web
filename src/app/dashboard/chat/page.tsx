@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
-    GraduationCap, Hash, ImagePlus, Loader2, MessageSquare, Send, Sparkles,
-    Store, UserPlus, UserRound, X,
+    GraduationCap, Hash, ImagePlus, Loader2, Maximize2, MessageSquare, Minimize2,
+    PanelLeftClose, PanelLeftOpen, Send, Sparkles, Store, UserPlus, UserRound, X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtInt } from "@/lib/format"
@@ -72,6 +72,21 @@ export default function ChatPage() {
     const [miNombre, setMiNombre] = useState("")
     // Clave tienda+usuario para aislar la conversación con Kesito en la pestaña
     const [claveKesito, setClaveKesito] = useState("")
+
+    // Panel de canales oculto (persistente) y chat a pantalla completa
+    const [canalesOcultos, setCanalesOcultos] = useState(() => {
+        if (typeof window === "undefined") return false
+        try { return localStorage.getItem("chat-canales-ocultos") === "1" } catch { return false }
+    })
+    const [pantallaCompleta, setPantallaCompleta] = useState(false)
+
+    const alternarCanales = () => {
+        setCanalesOcultos(previo => {
+            const nuevo = !previo
+            try { localStorage.setItem("chat-canales-ocultos", nuevo ? "1" : "0") } catch { /* sin persistencia */ }
+            return nuevo
+        })
+    }
     const [tiendas, setTiendas] = useState<Map<number, string>>(new Map())
 
     // Chats directos: conversaciones existentes + directorio para abrir nuevas
@@ -253,14 +268,51 @@ export default function ChatPage() {
         !filtroUsuario.trim()
         || `${u.nombre} ${u.tienda} ${u.codigo}`.toLowerCase().includes(filtroUsuario.trim().toLowerCase()))
 
+    const botonPanel = "p-1.5 rounded-lg bg-white/[0.05] border border-white/10 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/30 transition-all"
+
     return (
-        <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-9.5rem)]">
+        <div className={cn(
+            "flex flex-col lg:flex-row gap-4",
+            // Pantalla completa: el chat tapa todo el portal (menú y encabezado)
+            pantallaCompleta
+                ? "fixed inset-0 z-[80] bg-[#060a12] p-3 sm:p-4 h-auto"
+                : "h-[calc(100vh-9.5rem)]"
+        )}>
+            {/* Controles cuando el panel de canales está oculto */}
+            {canalesOcultos && (
+                <div className="shrink-0 flex lg:flex-col gap-1.5">
+                    <button onClick={alternarCanales} className={botonPanel} title="Mostrar los canales">
+                        <PanelLeftOpen className="h-4 w-4" />
+                    </button>
+                    <button
+                        onClick={() => setPantallaCompleta(p => !p)}
+                        className={botonPanel}
+                        title={pantallaCompleta ? "Salir de pantalla completa" : "Chat a pantalla completa"}
+                    >
+                        {pantallaCompleta ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </button>
+                </div>
+            )}
+
             {/* Canales */}
+            {!canalesOcultos && (
             <div className="lg:w-64 shrink-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl overflow-auto">
-                <div className="px-4 py-3 border-b border-white/[0.06]">
+                <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-2">
                     <h2 className="text-[12px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-2">
                         <MessageSquare className="h-4 w-4 text-emerald-400" /> Canales
                     </h2>
+                    <div className="flex items-center gap-1 shrink-0">
+                        <button
+                            onClick={() => setPantallaCompleta(p => !p)}
+                            className={botonPanel}
+                            title={pantallaCompleta ? "Salir de pantalla completa" : "Chat a pantalla completa"}
+                        >
+                            {pantallaCompleta ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                        </button>
+                        <button onClick={alternarCanales} className={botonPanel} title="Ocultar los canales">
+                            <PanelLeftClose className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
                 </div>
                 <div className="p-2 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-x-hidden">
                     <button
@@ -385,6 +437,7 @@ export default function ChatPage() {
                     )}
                 </div>
             </div>
+            )}
 
             {/* Conversación: los canales de agentes (Kesito, A.D.iA.N, Evaluaciones)
                 se atienden localmente; el resto con BDKYKPortal */}
