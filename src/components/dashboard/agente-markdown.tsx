@@ -1,12 +1,65 @@
-import { type Components } from "react-markdown"
+import ReactMarkdown, { type Components } from "react-markdown"
+import remarkGfm from "remark-gfm"
+import { BookOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { DiagramaFlujo } from "@/components/dashboard/diagrama-flujo"
+import { DiagramaFlujo, recortarFlujoAMedias } from "@/components/dashboard/diagrama-flujo"
+
+// El agente separa la evidencia (citas textuales, fuente y link del documento)
+// bajo una línea [REFERENCIAS]: en pantalla esa parte va colapsada tras el
+// botón "Ver referencias" y el TTS no la lee (textoHablable la recorta).
+const MARCA_REFERENCIAS = /^\s*\[REFERENCIAS\]\s*$/m
+
+export function separarReferencias(texto: string): { cuerpo: string; referencias: string } {
+    const marca = MARCA_REFERENCIAS.exec(texto)
+    if (!marca) return { cuerpo: texto, referencias: "" }
+    return {
+        cuerpo: texto.slice(0, marca.index).trimEnd(),
+        referencias: texto.slice(marca.index + marca[0].length).trim(),
+    }
+}
+
+// Render completo de una respuesta de agente: markdown del cuerpo + sección de
+// referencias colapsada (<details>, sin estado). Lo comparten las burbujas del
+// panel de chat y la consola Jarvis; `enVivo` marca el borrador en streaming.
+export function MarkdownAgente({ texto, acento, enVivo = false }: {
+    texto: string
+    acento: "ambar" | "violeta"
+    enVivo?: boolean
+}) {
+    const componentes = crearComponentesMarkdown(acento)
+    // El recorte de la línea a medias va sobre el texto crudo, antes del render
+    const listo = enVivo ? recortarFlujoAMedias(texto) : texto
+    const { cuerpo, referencias } = separarReferencias(listo)
+    return (
+        <>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentes}>
+                {cuerpo}
+            </ReactMarkdown>
+            {referencias && (
+                <details className="mt-1.5">
+                    <summary className={cn(
+                        "list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none",
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider transition-all",
+                        acento === "violeta"
+                            ? "border-violet-400/30 text-violet-300/90 hover:bg-violet-500/10"
+                            : "border-amber-400/30 text-amber-300/90 hover:bg-amber-500/10"
+                    )}>
+                        <BookOpen className="h-3 w-3" /> Ver referencias
+                    </summary>
+                    <div className="mt-2 pt-2 border-t border-white/10 space-y-1.5">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentes}>
+                            {referencias}
+                        </ReactMarkdown>
+                    </div>
+                </details>
+            )}
+        </>
+    )
+}
 
 // Componentes de react-markdown para las respuestas de los agentes (markdown
-// ligero: negritas, listas, tablas, citas, diagramas de flujo). Compartidos por
-// el panel de chat y la consola Jarvis. react-markdown no interpreta HTML
-// crudo: sin XSS. Para el borrador en streaming, el llamador recorta la línea
-// a medias de un fence flujo abierto ANTES de renderizar (recortarFlujoAMedias).
+// ligero: negritas, listas, tablas, citas, diagramas de flujo). react-markdown
+// no interpreta HTML crudo: sin XSS.
 export function crearComponentesMarkdown(acento: "ambar" | "violeta"): Components {
     const esVioleta = acento === "violeta"
     return {

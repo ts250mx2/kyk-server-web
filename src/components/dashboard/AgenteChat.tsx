@@ -3,11 +3,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, Mic, MicOff, Orbit, RotateCcw, Send, Sparkles, Volume2, VolumeX } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
-import { crearComponentesMarkdown } from "@/components/dashboard/agente-markdown"
-import { recortarFlujoAMedias } from "@/components/dashboard/diagrama-flujo"
+import { MarkdownAgente } from "@/components/dashboard/agente-markdown"
 import { VozJarvis } from "@/components/dashboard/VozJarvis"
 import {
     ESTADO_CONVERSACION_VACIO,
@@ -99,19 +96,13 @@ function BurbujaAgente({ texto, nombre, acento, enVivo = false }: {
     /** true en el borrador en streaming: el diagrama descarta la línea a medias */
     enVivo?: boolean
 }) {
-    const componentes = crearComponentesMarkdown(acento)
-    // El recorte va sobre el texto crudo (antes del render): react-markdown ya
-    // no distingue si la última línea del fence estaba completa
-    const contenido = enVivo ? recortarFlujoAMedias(texto) : texto
     return (
         <div className="max-w-[78%]">
             <p className={cn("text-[10px] font-black tracking-wider mb-0.5 px-1", ACENTOS[acento].etiqueta)}>
                 {nombre}
             </p>
             <div className="rounded-2xl rounded-bl-md px-3.5 py-2.5 border bg-white/[0.05] border-white/10 space-y-1.5">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentes}>
-                    {contenido}
-                </ReactMarkdown>
+                <MarkdownAgente texto={texto} acento={acento} enVivo={enVivo} />
             </div>
         </div>
     )

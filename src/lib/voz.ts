@@ -86,6 +86,8 @@ export function rateGuardado(): number {
 // Markdown → texto hablable (mismo recorte que kyk-dashboard)
 export function textoHablable(crudo: string): string {
     return crudo
+        // La sección de referencias (citas y links, colapsada en pantalla) no se lee
+        .replace(/^\s*\[REFERENCIAS\][\s\S]*$/m, " ")
         .replace(/```[\s\S]*?```/g, " ")
         .replace(/`[^`]*`/g, " ")
         .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")

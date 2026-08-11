@@ -5,11 +5,8 @@ import {
     ChevronDown, Gauge, Keyboard, Maximize2, Mic, MicOff, Minimize2, Play,
     Repeat, Sparkles, Square, Volume2, X,
 } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
-import { crearComponentesMarkdown } from "@/components/dashboard/agente-markdown"
-import { recortarFlujoAMedias } from "@/components/dashboard/diagrama-flujo"
+import { MarkdownAgente } from "@/components/dashboard/agente-markdown"
 import {
     cancelarPregunta,
     ESTADO_CONVERSACION_VACIO,
@@ -76,7 +73,6 @@ export function VozJarvis({ config, claveConversacion, onCerrar }: {
     onCerrar: () => void
 }) {
     const tema = TEMAS[config.acento]
-    const componentesMarkdown = crearComponentesMarkdown(config.acento)
 
     // Conversación compartida con el panel, observada desde el store
     const conversacion = useSyncExternalStore(
@@ -520,9 +516,7 @@ export function VozJarvis({ config, claveConversacion, onCerrar }: {
                         ) : (
                             <div key={i} className="flex justify-start">
                                 <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3.5 py-2 text-[13px] leading-relaxed border bg-white/5 border-white/15 space-y-1.5">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentesMarkdown}>
-                                        {m.texto}
-                                    </ReactMarkdown>
+                                    <MarkdownAgente texto={m.texto} acento={config.acento} />
                                 </div>
                             </div>
                         )
@@ -531,10 +525,7 @@ export function VozJarvis({ config, claveConversacion, onCerrar }: {
                     {conversacion.cargando && borrador && (
                         <div className="flex justify-start">
                             <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3.5 py-2 text-[13px] leading-relaxed border bg-white/5 border-white/15 space-y-1.5">
-                                {/* Recorta la línea a medias de un fence flujo abierto */}
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentesMarkdown}>
-                                    {recortarFlujoAMedias(borrador)}
-                                </ReactMarkdown>
+                                <MarkdownAgente texto={borrador} acento={config.acento} enVivo />
                                 <span className={cn("inline-block w-1.5 h-4 align-middle animate-pulse", config.acento === "ambar" ? "bg-amber-400/80" : "bg-violet-400/80")} />
                             </div>
                         </div>
