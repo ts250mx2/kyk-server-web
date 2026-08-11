@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { getSession } from '@/lib/session';
+import {
+    claveFaltante,
+    correrTurnoAgente,
+    esErrorDeAccesoAlModelo,
+    esErrorDeContexto,
+} from '@/lib/agente-modelo';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -9,7 +15,8 @@ export const maxDuration = 120;
 // herramientas llaman a las propias APIs del portal con la cookie de la sesión,
 // así que solo ve los datos de la tienda del usuario (precios, ofertas, básculas,
 // cortes, facturas, recibos, transferencias y devoluciones).
-// El modelo se configura SOLO en .env (AGENTES_MODELO) y no se muestra en la UI.
+// El modelo se configura SOLO en .env (AGENTES_MODELO) y no se muestra en la UI;
+// acepta modelos de Anthropic (claude-*) y de OpenAI (gpt-*) — ver agente-modelo.
 const MODELO = process.env.AGENTES_MODELO || 'claude-opus-5';
 const MAX_ITERACIONES = 6;
 const MAX_HISTORIAL = 12;
@@ -271,8 +278,9 @@ export async function POST(request: Request) {
     if (!session) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-    if (!process.env.ANTHROPIC_API_KEY) {
-        return NextResponse.json({ error: 'El agente no está configurado (falta ANTHROPIC_API_KEY)' }, { status: 503 });
+    const faltante = claveFaltante(MODELO);
+    if (faltante) {
+        return NextResponse.json({ error: `El agente no está configurado (falta ${faltante})` }, { status: 503 });
     }
     if (excedeLimite(`${session.idTienda}:${session.codigobarras}`)) {
         return NextResponse.json(
@@ -343,7 +351,6 @@ Reglas:
     }
     mensajes.push({ role: 'user', content: pregunta });
 
-    const anthropic = new Anthropic();
     const codificador = new TextEncoder();
 
     const stream = new ReadableStream({
@@ -362,30 +369,25 @@ Reglas:
             try {
                 let terminado = false;
                 for (let i = 0; i < MAX_ITERACIONES && conexionViva; i++) {
-                    const streamModelo = anthropic.messages.stream({
-                        model: MODELO,
-                        max_tokens: 1500,
-                        // system como bloque para que el prefijo herramientas+system se cachee
-                        system: [{ type: 'text', text: sistema, cache_control: { type: 'ephemeral' } }],
-                        tools: HERRAMIENTAS,
-                        messages: mensajes,
+                    const resultado = await correrTurnoAgente({
+                        modelo: MODELO,
+                        maxTokens: 1500,
+                        sistema,
+                        herramientas: HERRAMIENTAS,
+                        mensajes,
+                        alTexto: delta => emitir({ t: 'delta', texto: delta }),
                     });
-                    streamModelo.on('text', delta => emitir({ t: 'delta', texto: delta }));
-                    const resultado = await streamModelo.finalMessage();
 
-                    const usosDeHerramienta = resultado.content.filter(
-                        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
-                    );
-                    if (resultado.stop_reason !== 'tool_use' || usosDeHerramienta.length === 0) {
+                    if (resultado.usos.length === 0) {
                         terminado = true;
                         break;
                     }
 
                     // El texto emitido antes de las herramientas era preámbulo: se descarta
                     emitir({ t: 'reinicio' });
-                    mensajes.push({ role: 'assistant', content: resultado.content });
+                    mensajes.push({ role: 'assistant', content: resultado.contenido });
                     const resultados: Anthropic.ToolResultBlockParam[] = [];
-                    for (const uso of usosDeHerramienta) {
+                    for (const uso of resultado.usos) {
                         emitir({
                             t: 'estado',
                             texto: `Consultando ${ETIQUETA_HERRAMIENTA[uso.name] ?? 'datos de la tienda'}...`,
@@ -407,13 +409,13 @@ Reglas:
             } catch (error) {
                 console.error('Error en Kesito del portal:', error);
                 // Si aun así el contexto se llenó, el remedio es empezar de cero
-                const contextoLleno = error instanceof Anthropic.APIError
-                    && /prompt is too long/i.test(String(error.message));
                 emitir({
                     t: 'error',
-                    error: contextoLleno
+                    error: esErrorDeContexto(error)
                         ? 'La conversación creció demasiado. Empieza una nueva con el botón ↺ y vuelve a preguntar.'
-                        : 'El agente no pudo responder, intenta de nuevo.',
+                        : esErrorDeAccesoAlModelo(error)
+                            ? 'El modelo configurado para el agente no está habilitado en la cuenta del proveedor; hay que elegir otro en el .env del servidor.'
+                            : 'El agente no pudo responder, intenta de nuevo.',
                 });
             } finally {
                 try { controller.close(); } catch { /* ya cerrado por el cliente */ }
