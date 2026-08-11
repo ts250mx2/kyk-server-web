@@ -5,6 +5,7 @@ import Link from "next/link"
 import { RefreshCw, Loader2, AlertTriangle, Clock, Megaphone, PackageX } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt, fmtHora, fmtFechaLarga } from "@/lib/format"
+import { TarjetasDia } from "@/components/dashboard/TarjetasDia"
 
 const REFRESH_INTERVAL_MS = 60_000
 
@@ -256,6 +257,9 @@ export default function PrincipalPage() {
                     {error} — mostrando última información disponible
                 </div>
             )}
+
+            {/* Clima (clic → noticias), tip de mejora continua y reflexión del día */}
+            <TarjetasDia />
 
             {/* KPIs del día */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">

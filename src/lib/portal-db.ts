@@ -136,6 +136,13 @@ const TABLAS = [
         IdTienda INT NOT NULL DEFAULT 0,
         UltimaVez DATETIME NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS portal_contenido_diario (
+        Fecha DATE NOT NULL PRIMARY KEY,
+        TipTitulo VARCHAR(200) NOT NULL DEFAULT '',
+        TipTexto TEXT NOT NULL,
+        Reflexion TEXT NOT NULL,
+        FechaGeneracion DATETIME NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS evaluaciones (
         IdEvaluacion INT AUTO_INCREMENT PRIMARY KEY,
         IdDocumento INT NOT NULL,
