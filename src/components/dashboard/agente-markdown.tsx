@@ -9,12 +9,33 @@ import { DiagramaFlujo, recortarFlujoAMedias } from "@/components/dashboard/diag
 // botón "Ver referencias" y el TTS no la lee (textoHablable la recorta).
 const MARCA_REFERENCIAS = /^\s*\[REFERENCIAS\]\s*$/m
 
+// ¿La línea es evidencia? (cita textual, renglón de fuente o link a documento)
+function esLineaDeReferencia(linea: string): boolean {
+    const limpia = linea.trim()
+    return limpia.startsWith(">")
+        || /^\*{0,2}Fuente\b/i.test(limpia)
+        || limpia.includes("](/api/documentos/")
+}
+
 export function separarReferencias(texto: string): { cuerpo: string; referencias: string } {
     const marca = MARCA_REFERENCIAS.exec(texto)
-    if (!marca) return { cuerpo: texto, referencias: "" }
+    if (marca) {
+        return {
+            cuerpo: texto.slice(0, marca.index).trimEnd(),
+            referencias: texto.slice(marca.index + marca[0].length).trim(),
+        }
+    }
+    // Sin marcador (respuestas viejas o modelo fuera de guión): las líneas de
+    // evidencia se extraen igual para que la explicación siempre quede limpia
+    const cuerpo: string[] = []
+    const referencias: string[] = []
+    for (const linea of texto.split("\n")) {
+        (esLineaDeReferencia(linea) ? referencias : cuerpo).push(linea)
+    }
+    if (referencias.length === 0) return { cuerpo: texto, referencias: "" }
     return {
-        cuerpo: texto.slice(0, marca.index).trimEnd(),
-        referencias: texto.slice(marca.index + marca[0].length).trim(),
+        cuerpo: cuerpo.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd(),
+        referencias: referencias.join("\n").replace(/\n{3,}/g, "\n\n").trim(),
     }
 }
 

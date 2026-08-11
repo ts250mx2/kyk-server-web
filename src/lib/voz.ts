@@ -88,6 +88,16 @@ export function textoHablable(crudo: string): string {
     return crudo
         // La sección de referencias (citas y links, colapsada en pantalla) no se lee
         .replace(/^\s*\[REFERENCIAS\][\s\S]*$/m, " ")
+        // Evidencia suelta sin marcador (citas, renglones de fuente, links a
+        // documentos): tampoco se lee — en pantalla vive tras "Ver referencias"
+        .split("\n")
+        .filter(l => {
+            const limpia = l.trim()
+            return !limpia.startsWith(">")
+                && !/^\*{0,2}Fuente\b/i.test(limpia)
+                && !limpia.includes("](/api/documentos/")
+        })
+        .join("\n")
         .replace(/```[\s\S]*?```/g, " ")
         .replace(/`[^`]*`/g, " ")
         .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
