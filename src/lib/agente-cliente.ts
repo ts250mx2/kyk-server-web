@@ -26,12 +26,13 @@ export async function consultarAgente(
     pregunta: string,
     historial: MensajeAgente[],
     eventos: EventosAgente,
-    signal: AbortSignal
+    signal: AbortSignal,
+    modelo?: string
 ): Promise<string> {
     const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mensaje: pregunta, historial }),
+        body: JSON.stringify({ mensaje: pregunta, historial, ...(modelo ? { modelo } : {}) }),
         signal,
     })
     if (res.status === 401) throw new SesionExpiradaError()

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, Mic, MicOff, Orbit, RotateCcw, Send, Sparkles, Volume2, VolumeX } from "lucide-react"
 import ReactMarkdown from "react-markdown"
@@ -8,15 +8,23 @@ import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 import { crearComponentesMarkdown } from "@/components/dashboard/agente-markdown"
 import { VozJarvis } from "@/components/dashboard/VozJarvis"
-import { consultarAgente, SesionExpiradaError, type MensajeAgente } from "@/lib/agente-cliente"
+import {
+    ESTADO_CONVERSACION_VACIO,
+    estadoConversacion,
+    preguntarAgente,
+    reiniciarConversacion,
+    suscribirConversacion,
+} from "@/lib/agente-conversacion"
+import { guardarModelo, modeloElegido, MODELOS_AGENTES } from "@/lib/modelos-agentes"
 import { elegirVoz, errorVoz, obtenerReconocimiento, textoHablable, type ReconocimientoVoz } from "@/lib/voz"
 import type { Components } from "react-markdown"
 
 // Panel genérico de agente conversacional para los canales del chat (Kesito,
-// A.D.iA.N...): cliente streaming NDJSON compartido (src/lib/agente-cliente),
-// markdown ligero en las respuestas, conversación en sessionStorage aislada
-// por tienda+usuario, modo voz en línea y consola Jarvis a pantalla completa.
-// Cada agente lo configura con ConfigAgente.
+// A.D.iA.N...). La conversación y la consulta en streaming viven en el store
+// src/lib/agente-conversacion: si el usuario cambia de canal o de pantalla a
+// media pregunta, la respuesta sigue llegando en segundo plano y aquí solo se
+// "observa" con useSyncExternalStore. Incluye selector de modelo (persistido
+// por navegador), modo voz en línea y consola Jarvis a pantalla completa.
 
 export interface ConfigAgente {
     nombre: string
@@ -31,8 +39,6 @@ export interface ConfigAgente {
 }
 
 const MAX_MENSAJE = 2000
-// El servidor corta a los 120 s (maxDuration); el cliente aborta un poco después
-const TIEMPO_MAXIMO_MS = 125_000
 // Modo voz activado/desactivado, compartido entre agentes
 const CLAVE_VOZ = "agente-voz"
 
@@ -68,19 +74,6 @@ const ACENTOS = {
     },
 } as const
 
-// La conversación previa vive en sessionStorage: sobrevive recargas y se
-// pierde al cerrar la pestaña. En SSR no hay sessionStorage: inicia vacía.
-function conversacionGuardada(clave: string): MensajeAgente[] {
-    if (typeof window === "undefined") return []
-    try {
-        const guardado = sessionStorage.getItem(clave)
-        const lista = guardado ? JSON.parse(guardado) : null
-        return Array.isArray(lista) ? lista : []
-    } catch {
-        return []
-    }
-}
-
 function BurbujaAgente({ texto, nombre, acento, componentes }: {
     texto: string
     nombre: string
@@ -106,12 +99,24 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
     const acento = ACENTOS[config.acento]
     const componentesMarkdown = crearComponentesMarkdown(config.acento)
     const claveStorage = `${config.prefijoStorage}-${claveSesion}`
-    const [mensajes, setMensajes] = useState<MensajeAgente[]>(() => conversacionGuardada(claveStorage))
+
+    // La conversación vive en el store del módulo: sobrevive al desmontaje de
+    // este panel (cambio de canal o de pantalla) y aquí solo se observa
+    const conversacion = useSyncExternalStore(
+        avisar => suscribirConversacion(claveStorage, avisar),
+        () => estadoConversacion(claveStorage),
+        () => ESTADO_CONVERSACION_VACIO
+    )
+    const { mensajes, cargando, borrador, fase: estadoAgente } = conversacion
+
     const [texto, setTexto] = useState("")
-    const [cargando, setCargando] = useState(false)
-    const [borrador, setBorrador] = useState("")
-    const [estadoAgente, setEstadoAgente] = useState("")
-    const [error, setError] = useState("")
+    // Errores locales del micrófono/navegador; los del agente vienen del store
+    const [errorLocal, setErrorLocal] = useState("")
+    const error = errorLocal || conversacion.error
+
+    // Selector de modelo (compartido entre agentes, persistido por navegador;
+    // en SSR regresa el default, igual que el toggle de voz)
+    const [modelo, setModelo] = useState(() => modeloElegido())
 
     // Modo voz: dictado (STT) + respuestas habladas (TTS). El toggle persiste
     // en localStorage; el panel solo se monta en el cliente, sin riesgo de SSR.
@@ -126,24 +131,20 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
 
     const contenedorRef = useRef<HTMLDivElement>(null)
     const entradaRef = useRef<HTMLTextAreaElement>(null)
-    const abortRef = useRef<AbortController | null>(null)
     const reconocimientoRef = useRef<ReconocimientoVoz | null>(null)
     const escuchandoRef = useRef(false)
     const finalVozRef = useRef("")
     const vozActivaRef = useRef(vozActiva)
     // Si la última pregunta llegó dictada, al terminar de hablar vuelve a escuchar
     const porVozRef = useRef(false)
+    // La respuesta puede llegar con el panel ya desmontado: se habla igual,
+    // pero el micrófono NO se reabre ni se roba el foco en otra pantalla
+    const montadoRef = useRef(true)
     // Refs a las versiones más recientes (evita cierres obsoletos en onend/onresult)
     const enviarRef = useRef<(sugerencia?: string, porVoz?: boolean) => void>(() => { })
     const escucharRef = useRef<() => void>(() => { })
 
     useEffect(() => { vozActivaRef.current = vozActiva }, [vozActiva])
-
-    useEffect(() => {
-        try {
-            sessionStorage.setItem(claveStorage, JSON.stringify(mensajes))
-        } catch { /* sin persistencia el chat sigue funcionando */ }
-    }, [claveStorage, mensajes])
 
     // Limpia conversaciones de otras sesiones que hayan quedado en esta pestaña
     useEffect(() => {
@@ -160,11 +161,18 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
         if (el) el.scrollTop = el.scrollHeight
     }, [mensajes, cargando, borrador, estadoAgente])
 
-    // Foco al entrar al canal; al salir se aborta todo (consulta, micrófono, voz)
+    // La sesión venció a media consulta (detectado por el store)
     useEffect(() => {
+        if (conversacion.sesionExpirada) router.push("/login")
+    }, [conversacion.sesionExpirada, router])
+
+    // Foco al entrar al canal; al salir se apagan micrófono y voz — la consulta
+    // en curso NO se aborta: sigue en el store y estará lista al regresar
+    useEffect(() => {
+        montadoRef.current = true
         entradaRef.current?.focus()
         return () => {
-            abortRef.current?.abort()
+            montadoRef.current = false
             try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
             try { window.speechSynthesis?.cancel() } catch { /* sin síntesis */ }
         }
@@ -174,16 +182,16 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
     const iniciarEscucha = () => {
         const SR = obtenerReconocimiento()
         if (!SR) {
-            setError("Este navegador no soporta el reconocimiento de voz — usa Chrome o Edge.")
+            setErrorLocal("Este navegador no soporta el reconocimiento de voz — usa Chrome o Edge.")
             return
         }
         if (!window.isSecureContext) {
-            setError("El micrófono necesita HTTPS o localhost.")
+            setErrorLocal("El micrófono necesita HTTPS o localhost.")
             return
         }
         if (escuchandoRef.current) return
         try { window.speechSynthesis?.cancel() } catch { /* barge-in */ }
-        setError("")
+        setErrorLocal("")
 
         const rec = new SR()
         rec.lang = "es-MX"
@@ -206,7 +214,7 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
         }
         rec.onerror = e => {
             const mensaje = errorVoz(String(e.error ?? ""))
-            if (mensaje) setError(mensaje)
+            if (mensaje) setErrorLocal(mensaje)
         }
         rec.onend = () => {
             escuchandoRef.current = false
@@ -245,9 +253,10 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
             locucion.rate = 1
             locucion.pitch = 1
             // Conversación continua manos libres: si la pregunta llegó dictada,
-            // al terminar la locución el micrófono se abre otra vez solo
+            // al terminar la locución el micrófono se abre otra vez solo —
+            // solo con el panel visible (no en otra pantalla)
             locucion.onend = () => {
-                if (vozActivaRef.current && porVozRef.current) escucharRef.current()
+                if (vozActivaRef.current && porVozRef.current && montadoRef.current) escucharRef.current()
             }
             window.speechSynthesis.speak(locucion)
         } catch { /* sin voz, el texto ya está en pantalla */ }
@@ -267,51 +276,29 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
 
     const enviar = async (sugerencia?: string, porVoz = false) => {
         const pregunta = (sugerencia ?? texto).trim().slice(0, MAX_MENSAJE)
-        if (!pregunta || cargando) return
+        if (!pregunta || estadoConversacion(claveStorage).cargando) return
         porVozRef.current = porVoz
-
-        const historial = mensajes
-        setMensajes(prev => [...prev, { rol: "user", texto: pregunta }])
         setTexto("")
-        setCargando(true)
-        setError("")
+        setErrorLocal("")
 
-        const controlador = new AbortController()
-        abortRef.current = controlador
-        const limite = setTimeout(() => controlador.abort(), TIEMPO_MAXIMO_MS)
-
-        try {
-            const respuesta = await consultarAgente(config.endpoint, pregunta, historial, {
-                onDelta: acumulado => { setBorrador(acumulado); setEstadoAgente("") },
-                onReinicio: () => setBorrador(""),
-                onEstado: textoEstado => setEstadoAgente(textoEstado),
-            }, controlador.signal)
-
-            const textoFinal = respuesta || "No pude completar la consulta, intenta preguntarlo de otra forma."
-            setMensajes(prev => [...prev, { rol: "assistant", texto: textoFinal }])
-            if (vozActivaRef.current) hablar(textoFinal)
-        } catch (err: unknown) {
-            if (err instanceof SesionExpiradaError) { router.push("/login"); return }
-            if (controlador.signal.aborted) {
-                setError("El agente tardó demasiado en responder, intenta de nuevo.")
-            } else {
-                setError(err instanceof Error ? err.message : "El agente no pudo responder, intenta de nuevo.")
-            }
-        } finally {
-            clearTimeout(limite)
-            abortRef.current = null
-            setBorrador("")
-            setEstadoAgente("")
-            setCargando(false)
-            entradaRef.current?.focus()
-        }
+        // La consulta corre en el store: si el usuario se va a otro canal o
+        // pantalla, sigue en segundo plano y el panel la muestra al regresar
+        const resultado = await preguntarAgente(claveStorage, config.endpoint, pregunta, modeloElegido())
+        if (!resultado) return
+        if (resultado.sesionExpirada) { router.push("/login"); return }
+        if (resultado.ok && vozActivaRef.current) hablar(resultado.texto)
+        if (montadoRef.current) entradaRef.current?.focus()
     }
 
     const reiniciar = () => {
-        setMensajes([])
-        setError("")
-        try { sessionStorage.removeItem(claveStorage) } catch { /* sin persistencia */ }
+        reiniciarConversacion(claveStorage)
+        setErrorLocal("")
         entradaRef.current?.focus()
+    }
+
+    const cambiarModelo = (id: string) => {
+        setModelo(id)
+        guardarModelo(id)
     }
 
     // Mantiene los refs apuntando a las versiones de este render (los callbacks
@@ -338,6 +325,23 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
                         {config.subtitulo}
                     </p>
                 </div>
+                {/* Selector de modelo (compartido entre ambos agentes) */}
+                <select
+                    value={modelo}
+                    onChange={e => cambiarModelo(e.target.value)}
+                    className={cn(
+                        "px-2 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-[10px] font-black text-slate-300",
+                        "focus:outline-none cursor-pointer transition-all", acento.hoverBoton
+                    )}
+                    title="Modelo de IA que responde en este chat"
+                    aria-label="Modelo de IA"
+                >
+                    {MODELOS_AGENTES.map(m => (
+                        <option key={m.id} value={m.id} className="bg-[#0d1320] text-slate-200 font-bold">
+                            {m.etiqueta}
+                        </option>
+                    ))}
+                </select>
                 <button
                     onClick={() => {
                         // La consola toma el control del audio: se silencia lo del panel
@@ -493,8 +497,7 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
             {jarvisAbierto && (
                 <VozJarvis
                     config={config}
-                    mensajes={mensajes}
-                    onAgregar={m => setMensajes(prev => [...prev, m])}
+                    claveConversacion={claveStorage}
                     onCerrar={() => setJarvisAbierto(false)}
                 />
             )}

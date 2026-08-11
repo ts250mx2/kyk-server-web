@@ -7,6 +7,7 @@ import {
     esErrorDeAccesoAlModelo,
     esErrorDeContexto,
 } from '@/lib/agente-modelo';
+import { esModeloPermitido } from '@/lib/modelos-agentes';
 import { portalQuery, esOficina } from '@/lib/portal-db';
 import { asegurarTexto, buscarEnTextos, obtenerPagina } from '@/lib/documentos-texto';
 
@@ -106,10 +107,6 @@ export async function POST(request: Request) {
     if (!session) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-    const faltante = claveFaltante(MODELO);
-    if (faltante) {
-        return NextResponse.json({ error: `El agente no está configurado (falta ${faltante})` }, { status: 503 });
-    }
     if (excedeLimite(`${session.idTienda}:${session.codigobarras}`)) {
         return NextResponse.json(
             { error: 'Muy rápido: espera un momento antes de volver a preguntar.' },
@@ -119,15 +116,25 @@ export async function POST(request: Request) {
 
     let pregunta = '';
     let historial: unknown = null;
+    let modeloPedido: unknown = null;
     try {
         const cuerpo = await request.json();
         pregunta = String(cuerpo?.mensaje ?? '').trim().slice(0, 2000);
         historial = cuerpo?.historial;
+        modeloPedido = cuerpo?.modelo;
     } catch {
         return NextResponse.json({ error: 'Cuerpo inválido' }, { status: 400 });
     }
     if (!pregunta) {
         return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 });
+    }
+
+    // El selector del chat manda un modelo del catálogo permitido; cualquier
+    // otra cosa cae al default del .env (AGENTES_MODELO)
+    const modelo = esModeloPermitido(modeloPedido) ? modeloPedido : MODELO;
+    const faltante = claveFaltante(modelo);
+    if (faltante) {
+        return NextResponse.json({ error: `El agente no está configurado (falta ${faltante})` }, { status: 503 });
     }
 
     const oficina = await esOficina(session.codigobarras);
@@ -322,7 +329,7 @@ Reglas:
                 let terminado = false;
                 for (let i = 0; i < MAX_ITERACIONES && conexionViva; i++) {
                     const resultado = await correrTurnoAgente({
-                        modelo: MODELO,
+                        modelo,
                         maxTokens: 1500,
                         sistema,
                         herramientas: HERRAMIENTAS,
@@ -365,7 +372,7 @@ Reglas:
                     error: esErrorDeContexto(error)
                         ? 'La conversación creció demasiado. Empieza una nueva con el botón ↺ y vuelve a preguntar.'
                         : esErrorDeAccesoAlModelo(error)
-                            ? 'El modelo configurado para el agente no está habilitado en la cuenta del proveedor; hay que elegir otro en el .env del servidor.'
+                            ? 'Ese modelo aún no está habilitado en la cuenta del proveedor: elige otro en el selector del chat.'
                             : 'El agente no pudo responder, intenta de nuevo.',
                 });
             } finally {

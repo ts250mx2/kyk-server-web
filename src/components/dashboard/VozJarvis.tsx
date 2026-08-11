@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import {
     ChevronDown, Gauge, Keyboard, Maximize2, Mic, MicOff, Minimize2, Play,
     Repeat, Sparkles, Square, Volume2, X,
@@ -9,7 +9,14 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 import { crearComponentesMarkdown } from "@/components/dashboard/agente-markdown"
-import { consultarAgente, SesionExpiradaError, type MensajeAgente } from "@/lib/agente-cliente"
+import {
+    cancelarPregunta,
+    ESTADO_CONVERSACION_VACIO,
+    estadoConversacion,
+    preguntarAgente,
+    suscribirConversacion,
+} from "@/lib/agente-conversacion"
+import { modeloElegido } from "@/lib/modelos-agentes"
 import {
     CLAVE_VOZ_RATE, CLAVE_VOZ_URI, elegirVoz, errorVoz, esVozEspanol, esVozNatural,
     nombreVoz, obtenerReconocimiento, rateGuardado, textoHablable, type ReconocimientoVoz,
@@ -18,8 +25,9 @@ import type { ConfigAgente } from "@/components/dashboard/AgenteChat"
 
 // Consola de voz "Jarvis" (port del Modo Voz de kyk-dashboard): overlay a
 // pantalla completa con orbe reactivo, dictado es-MX, respuesta hablada con
-// selector de voces naturales, velocidad y conversación continua. Comparte la
-// conversación del panel del agente (mensajes/onAgregar del padre).
+// selector de voces naturales, velocidad y conversación continua. La
+// conversación vive en el store agente-conversacion (la misma del panel): si
+// se cierra la consola a media pregunta, la respuesta sigue en segundo plano.
 
 type Estado = "idle" | "listening" | "thinking" | "speaking" | "error"
 
@@ -60,39 +68,44 @@ const TEMAS = {
 } as const
 
 const MAX_MENSAJE = 2000
-// El servidor corta a los 120 s; el cliente aborta un poco después
-const TIEMPO_MAXIMO_MS = 125_000
 
-export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
+export function VozJarvis({ config, claveConversacion, onCerrar }: {
     config: ConfigAgente
-    mensajes: MensajeAgente[]
-    onAgregar: (m: MensajeAgente) => void
+    claveConversacion: string
     onCerrar: () => void
 }) {
     const tema = TEMAS[config.acento]
     const componentesMarkdown = crearComponentesMarkdown(config.acento)
 
+    // Conversación compartida con el panel, observada desde el store
+    const conversacion = useSyncExternalStore(
+        avisar => suscribirConversacion(claveConversacion, avisar),
+        () => estadoConversacion(claveConversacion),
+        () => ESTADO_CONVERSACION_VACIO
+    )
+    const mensajes = conversacion.mensajes
+    const borrador = conversacion.borrador
+    const fase = conversacion.fase
+
     const [estado, setEstado] = useState<Estado>("idle")
     const [interim, setInterim] = useState("")
-    const [borrador, setBorrador] = useState("")
-    const [fase, setFase] = useState("")
     const [errorMsg, setErrorMsg] = useState("")
     const [textoEscrito, setTextoEscrito] = useState("")
     const [orbeChico, setOrbeChico] = useState(false)
     const [continuo, setContinuo] = useState(false)
 
     const [soportado] = useState(() => Boolean(obtenerReconocimiento()))
-    const [seguro, setSeguro] = useState(true)
+    // La consola solo se monta en el cliente (jarvisAbierto), sin riesgo de SSR
+    const [seguro, setSeguro] = useState(() => typeof window === "undefined" || window.isSecureContext !== false)
     const [voces, setVoces] = useState<SpeechSynthesisVoice[]>([])
     const [vozURI, setVozURI] = useState("")
     const [sinNaturales, setSinNaturales] = useState(false)
     const [menuVoces, setMenuVoces] = useState(false)
-    const [rate, setRate] = useState(1)
+    const [rate, setRate] = useState(() => rateGuardado())
 
     const reconocimientoRef = useRef<ReconocimientoVoz | null>(null)
     const escuchandoRef = useRef(false)
     const finalRef = useRef("")
-    const abortRef = useRef<AbortController | null>(null)
     const orbRef = useRef<HTMLDivElement | null>(null)
     const finListaRef = useRef<HTMLDivElement | null>(null)
     const menuVocesRef = useRef<HTMLDivElement | null>(null)
@@ -100,20 +113,19 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
     const ampRef = useRef(0)
     const estadoRef = useRef<Estado>("idle")
     const continuoRef = useRef(false)
-    const mensajesRef = useRef(mensajes)
     const iniciarRef = useRef<() => void>(() => { })
     const menuVocesAbiertoRef = useRef(false)
-    // Props del padre fijadas en refs: el padre las recrea en cada render y si
-    // entraran a deps de un efecto con limpieza, cada mensaje nuevo dispararía
-    // esa limpieza y ABORTARÍA la consulta en curso (la consola quedaba muda)
-    const onAgregarRef = useRef(onAgregar)
+    // La respuesta puede llegar con la consola ya cerrada: en ese caso el panel
+    // la muestra y aquí no se habla ni se reabre el micrófono
+    const montadoRef = useRef(true)
+    // Prop del padre fijada en ref: el padre la recrea en cada render y si
+    // entrara a deps de un efecto con limpieza, cada mensaje nuevo la dispararía
     const onCerrarRef = useRef(onCerrar)
 
     const ponerEstado = (e: Estado) => { estadoRef.current = e; setEstado(e) }
     useEffect(() => { continuoRef.current = continuo }, [continuo])
-    useEffect(() => { mensajesRef.current = mensajes }, [mensajes])
     useEffect(() => { menuVocesAbiertoRef.current = menuVoces }, [menuVoces])
-    useEffect(() => { onAgregarRef.current = onAgregar; onCerrarRef.current = onCerrar })
+    useEffect(() => { onCerrarRef.current = onCerrar })
 
     // ── Voces de síntesis (español; Chrome dispara la lista vacía primero) ──
     useEffect(() => {
@@ -136,11 +148,6 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
         }
     }, [])
 
-    // Preferencias y contexto seguro (el micrófono exige HTTPS o localhost)
-    useEffect(() => {
-        setRate(rateGuardado())
-        setSeguro(typeof window === "undefined" || window.isSecureContext !== false)
-    }, [])
 
     // ── Bucle de animación del orbe (amplitud sintética por estado) ──
     useEffect(() => {
@@ -170,6 +177,14 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
         finListaRef.current?.scrollIntoView({ behavior: "smooth" })
     }, [mensajes, borrador, interim])
 
+    // En cuanto empieza a llegar respuesta, el orbe se hace chico para leerla
+    // (ajuste durante el render, sin efecto: el borrador viene del store)
+    const [borradorPrevio, setBorradorPrevio] = useState("")
+    if (borrador !== borradorPrevio) {
+        setBorradorPrevio(borrador)
+        if (borrador.trim()) setOrbeChico(true)
+    }
+
     // Menú de voces: clic afuera o Escape lo cierran (Escape sin menú cierra la consola)
     useEffect(() => {
         const alPresionar = (e: MouseEvent) => {
@@ -183,8 +198,8 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
     const hablar = useCallback((texto: string) => {
         const alTerminar = () => {
             ponerEstado("idle")
-            if (continuoRef.current) {
-                setTimeout(() => { if (estadoRef.current === "idle") iniciarRef.current() }, 450)
+            if (continuoRef.current && montadoRef.current) {
+                setTimeout(() => { if (estadoRef.current === "idle" && montadoRef.current) iniciarRef.current() }, 450)
             }
         }
         if (typeof window === "undefined" || !("speechSynthesis" in window)) { alTerminar(); return }
@@ -227,50 +242,24 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
         probarVoz(uri)
     }
 
-    // ── Envío al agente (mismo backend streaming que el panel del chat) ──
+    // ── Envío al agente (la consulta corre en el store del módulo: si se
+    // cierra la consola a media respuesta, sigue en segundo plano) ──
     const enviar = useCallback(async (pregunta: string) => {
         const limpia = pregunta.trim().slice(0, MAX_MENSAJE)
         if (!limpia) { ponerEstado("idle"); return }
 
-        const historial = mensajesRef.current
-        onAgregarRef.current({ rol: "user", texto: limpia })
         setInterim("")
-        setBorrador("")
-        setFase("")
         setErrorMsg("")
         ponerEstado("thinking")
 
-        abortRef.current?.abort()
-        const controlador = new AbortController()
-        abortRef.current = controlador
-        const limite = setTimeout(() => controlador.abort(), TIEMPO_MAXIMO_MS)
-
-        try {
-            const respuesta = await consultarAgente(config.endpoint, limpia, historial, {
-                onDelta: acumulado => {
-                    setBorrador(acumulado)
-                    setFase("")
-                    if (acumulado.trim()) setOrbeChico(true)
-                },
-                onReinicio: () => setBorrador(""),
-                onEstado: texto => setFase(texto),
-            }, controlador.signal)
-
-            const textoFinal = respuesta || "No pude completar la consulta, intenta preguntarlo de otra forma."
-            setBorrador("")
-            onAgregarRef.current({ rol: "assistant", texto: textoFinal })
-            hablar(textoFinal)
-        } catch (err: unknown) {
-            if (err instanceof SesionExpiradaError) { window.location.href = "/login"; return }
-            if (controlador.signal.aborted) { ponerEstado("idle"); return }
-            const mensaje = err instanceof Error ? err.message : "El agente no pudo responder, intenta de nuevo."
-            setBorrador("")
-            onAgregarRef.current({ rol: "assistant", texto: mensaje })
-            hablar(mensaje)
-        } finally {
-            clearTimeout(limite)
-        }
-    }, [config.endpoint, hablar])
+        const resultado = await preguntarAgente(claveConversacion, config.endpoint, limpia, modeloElegido())
+        // Consola cerrada a media respuesta: el panel la muestra; aquí ya no se habla
+        if (!montadoRef.current) return
+        if (!resultado) { ponerEstado("idle"); return }
+        if (resultado.sesionExpirada) { window.location.href = "/login"; return }
+        if (!resultado.ok) setErrorMsg(resultado.texto)
+        hablar(resultado.texto || "No pude completar la consulta, intenta preguntarlo de otra forma.")
+    }, [claveConversacion, config.endpoint, hablar])
 
     // ── Reconocimiento de voz ──
     const iniciarEscucha = useCallback(() => {
@@ -342,27 +331,34 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
         try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
     }, [])
 
+    // Detener explícito (botón del orbe): SÍ corta la pregunta en curso
     const pararTodo = useCallback(() => {
-        abortRef.current?.abort()
+        cancelarPregunta(claveConversacion)
         try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
         try { window.speechSynthesis?.cancel() } catch { /* sin síntesis */ }
         escuchandoRef.current = false
         setInterim("")
-        setBorrador("")
         ponerEstado("idle")
-    }, [])
+    }, [claveConversacion])
 
+    // Cerrar la consola NO corta la pregunta: sigue en segundo plano y el
+    // panel del chat la muestra al terminar — solo se apagan micrófono y voz
     const cerrar = useCallback(() => {
-        pararTodo()
-        onCerrarRef.current()
-    }, [pararTodo])
-
-    // Limpieza SOLO al desmontar — nunca en re-renders, porque abortaría la
-    // consulta en curso (deps vacías a propósito)
-    useEffect(() => () => {
-        abortRef.current?.abort()
         try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
         try { window.speechSynthesis?.cancel() } catch { /* sin síntesis */ }
+        escuchandoRef.current = false
+        onCerrarRef.current()
+    }, [])
+
+    // Limpieza SOLO al desmontar — nunca en re-renders. La consulta en curso
+    // NO se aborta: vive en el store y termina en segundo plano
+    useEffect(() => {
+        montadoRef.current = true
+        return () => {
+            montadoRef.current = false
+            try { reconocimientoRef.current?.stop() } catch { /* ya detenido */ }
+            try { window.speechSynthesis?.cancel() } catch { /* sin síntesis */ }
+        }
     }, [])
 
     // Escape: cierra el menú de voces si está abierto; si no, la consola
@@ -531,7 +527,7 @@ export function VozJarvis({ config, mensajes, onAgregar, onCerrar }: {
                         )
                     ))}
                     {/* Respuesta en streaming (aún no confirmada como turno) */}
-                    {estado === "thinking" && borrador && (
+                    {conversacion.cargando && borrador && (
                         <div className="flex justify-start">
                             <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3.5 py-2 text-[13px] leading-relaxed border bg-white/5 border-white/15 space-y-1.5">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentesMarkdown}>
