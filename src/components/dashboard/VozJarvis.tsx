@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 import { crearComponentesMarkdown } from "@/components/dashboard/agente-markdown"
+import { recortarFlujoAMedias } from "@/components/dashboard/diagrama-flujo"
 import {
     cancelarPregunta,
     ESTADO_CONVERSACION_VACIO,
@@ -530,8 +531,9 @@ export function VozJarvis({ config, claveConversacion, onCerrar }: {
                     {conversacion.cargando && borrador && (
                         <div className="flex justify-start">
                             <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3.5 py-2 text-[13px] leading-relaxed border bg-white/5 border-white/15 space-y-1.5">
+                                {/* Recorta la línea a medias de un fence flujo abierto */}
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentesMarkdown}>
-                                    {borrador}
+                                    {recortarFlujoAMedias(borrador)}
                                 </ReactMarkdown>
                                 <span className={cn("inline-block w-1.5 h-4 align-middle animate-pulse", config.acento === "ambar" ? "bg-amber-400/80" : "bg-violet-400/80")} />
                             </div>

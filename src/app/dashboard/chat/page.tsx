@@ -69,6 +69,7 @@ export default function ChatPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState("")
     const [miCodigo, setMiCodigo] = useState("")
+    const [miNombre, setMiNombre] = useState("")
     // Clave tienda+usuario para aislar la conversación con Kesito en la pestaña
     const [claveKesito, setClaveKesito] = useState("")
     const [tiendas, setTiendas] = useState<Map<number, string>>(new Map())
@@ -103,6 +104,7 @@ export default function ChatPage() {
             .then(r => r.json())
             .then(d => {
                 setMiCodigo(d.user?.codigobarras ?? "")
+                setMiNombre(d.user?.name ?? "")
                 setClaveKesito(`${d.user?.idTienda ?? 0}-${d.user?.codigobarras ?? "anon"}`)
             })
             // Sin identidad los mensajes salen a la izquierda y Kesito usa clave genérica
@@ -393,7 +395,7 @@ export default function ChatPage() {
                     canalSel === CANAL_KESITO ? (
                         <KesitoPanel key={`kesito-${claveKesito}`} claveSesion={claveKesito} />
                     ) : (
-                        <AdianPanel key={`adian-${claveKesito}`} claveSesion={claveKesito} />
+                        <AdianPanel key={`adian-${claveKesito}`} claveSesion={claveKesito} nombre={miNombre} />
                     )
                 ) : (
                     <div className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded-2xl backdrop-blur-xl flex items-center justify-center">

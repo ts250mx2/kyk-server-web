@@ -408,9 +408,36 @@ Reglas:
                     mensajes.push({ role: 'user', content: resultados });
                 }
 
-                if (!terminado) {
+                // Rondas agotadas: una última llamada SIN ejecutar herramientas
+                // para que el agente cierre con lo que ya tiene, en vez del
+                // genérico "no pude completar la consulta"
+                if (!terminado && conexionViva) {
+                    const ultimo = mensajes[mensajes.length - 1];
+                    const instruccion = 'Ya usaste todas tus rondas de consulta y las herramientas quedaron deshabilitadas: responde AHORA al usuario con lo que tienes. Si algo no lo pudiste consultar, dilo claro y sugiérele volver a intentar; no prometas consultas que ya no puedes hacer.';
+                    if (ultimo && ultimo.role === 'user' && Array.isArray(ultimo.content)) {
+                        (ultimo.content as Anthropic.ContentBlockParam[]).push({ type: 'text', text: instruccion });
+                    } else {
+                        mensajes.push({ role: 'user', content: instruccion });
+                    }
                     emitir({ t: 'reinicio' });
-                    emitir({ t: 'delta', texto: 'No pude completar la consulta, intenta preguntarlo de otra forma.' });
+                    const cierre = await correrTurnoAgente({
+                        modelo,
+                        maxTokens: 1500,
+                        sistema,
+                        herramientas: HERRAMIENTAS,
+                        sinHerramientas: true,
+                        mensajes,
+                        alTexto: delta => emitir({ t: 'delta', texto: delta }),
+                    });
+                    const textoCierre = cierre.contenido
+                        .filter((b): b is Anthropic.TextBlockParam => b.type === 'text')
+                        .map(b => b.text)
+                        .join('')
+                        .trim();
+                    if (!textoCierre) {
+                        emitir({ t: 'reinicio' });
+                        emitir({ t: 'delta', texto: 'No pude completar la consulta, intenta preguntarlo de otra forma.' });
+                    }
                 }
                 emitir({ t: 'fin' });
             } catch (error) {

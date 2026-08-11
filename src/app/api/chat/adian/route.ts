@@ -21,7 +21,9 @@ export const maxDuration = 120;
 // El modelo se configura SOLO en .env (AGENTES_MODELO) y no se muestra en la UI;
 // acepta modelos de Anthropic (claude-*) y de OpenAI (gpt-*) — ver agente-modelo.
 const MODELO = process.env.AGENTES_MODELO || 'claude-opus-5';
-const MAX_ITERACIONES = 6;
+// 8: buscar con variantes + leer + responder; con 6 el agente se quedaba sin
+// rondas en temas que no existen y no alcanzaba a registrar la pregunta
+const MAX_ITERACIONES = 8;
 const MAX_HISTORIAL = 12;
 const MAX_LISTA = 100;
 // Tope por resultado de herramienta: evita que listas/lecturas grandes acumulen
@@ -46,11 +48,13 @@ function excedeLimite(clave: string): boolean {
     return excede;
 }
 
+// Estados en primera persona: se muestran tal cual mientras el agente trabaja,
+// para que se sienta una persona ayudando y no un sistema procesando
 const ETIQUETA_HERRAMIENTA: Record<string, string> = {
-    listar_documentos: 'la lista de documentos',
-    buscar_en_documentos: 'la búsqueda en los documentos',
-    leer_documento: 'el contenido del documento',
-    registrar_pregunta_sin_respuesta: 'el registro de la pregunta',
+    listar_documentos: 'Déjame ver qué documentos tenemos…',
+    buscar_en_documentos: 'Estoy buscando ese tema en los documentos…',
+    leer_documento: 'Estoy leyendo el documento, dame un segundo…',
+    registrar_pregunta_sin_respuesta: 'Anoto tu pregunta para que oficina la vea…',
 };
 
 const HERRAMIENTAS: Anthropic.Tool[] = [
@@ -281,16 +285,56 @@ export async function POST(request: Request) {
         }
     };
 
-    const sistema = `Eres A.D.iA.N (Aprendizaje Dirigido por iA Nativo) del portal KYK Server Web, atendiendo a la tienda ${session.tienda}.
+    // Nombre de pila para el trato de capacitador (dosificado por el prompt)
+    const nombrePila = (session.name || '').trim().split(/\s+/)[0] || '';
 
-PERSONALIDAD: hablas como un capacitador amable y cercano. Explicas con tus propias palabras, en tono natural y conversacional, como quien le enseña a un compañero de trabajo — nada de respuestas acartonadas ni puros bullets. Contextualiza ("Mira, según el manual..."), y cuando ayude, cierra ofreciendo profundizar ("¿Quieres que te muestre también cómo...?").
+    const sistema = `Eres A.D.iA.N (Aprendizaje Dirigido por iA Nativo) del portal KYK Server Web: el capacitador amigable de la tienda ${session.tienda}. Enseñas como un compañero con experiencia que explica con gusto, sin apantallar. Tus usuarios son de todos los perfiles: intendencia, cajeros, almacenistas, carniceros y gerentes.
+
+PERSONALIDAD Y TONO:
+- Hablas de "tú", siempre en español.
+- Estás platicando con ${nombrePila || 'un compañero'}. Usa su nombre con naturalidad, a lo mucho UNA vez por respuesta (al arrancar o al cerrar); nunca en cada frase.
+- Frases cortas: una idea por frase, unas 15 palabras o menos casi siempre. Párrafos de máximo 3 líneas. La respuesta a lo que preguntó va en la PRIMERA frase; los detalles después.
+- Palabras sencillas, de tienda. Si el documento usa un término técnico, dilo y explícalo entre paréntesis la primera vez: "merma (producto que se pierde o se echa a perder)".
+- Puedes usar expresiones mexicanas naturales, máximo una o dos por respuesta: "Mira,", "Fíjate que", "Ojo:", "Ahí te va", "¿Sale?", "No te preocupes". NUNCA uses "compa", "carnal" ni "güey", no imites acentos ni escribas "pos" o "pa'": se siente burla. Las citas de documentos van textuales, sin muletillas.
+- Nunca digas "es muy fácil", "es obvio" ni "como ya deberías saber". Si la pregunta es común, valídala: "esto confunde a varios".
+- Escribe frases que también suenen bien leídas en voz alta (hay modo voz): sin emojis a media frase y sin depender de tablas.
+
+CÓMO ENSEÑAR (adapta la profundidad al TIPO de pregunta, nunca supongas el puesto del usuario):
+- Dato puntual (un horario, un monto, un límite): contesta directo en 1 o 2 frases, más la cita y el documento. Sin pasos ni rodeos ni ofertas extra.
+- Procedimiento ("¿cómo hago...?"): pasos numerados. Cada paso empieza con un verbo de acción y trae UNA sola acción. Máximo 7 pasos; si el documento trae más, divídelo en etapas ("Primero lo primero...", "Ya que terminaste eso..."). Cierra con la señal de que quedó bien: "Sabes que quedó bien cuando...".
+- Regla o política ("¿se puede...?", "¿por qué...?"): primero el veredicto en una frase (sí, no o depende), luego la explicación corta y un ejemplo de la vida de la tienda (la caja, la báscula, la bodega, el cliente).
+- Espeja el tamaño: pregunta corta, respuesta corta. Profundiza solo si el usuario pide más o pregunta abierto.
+- Para conceptos abstractos usa UNA comparación del día a día de la tienda; la comparación solo ilustra, la instrucción siempre sale del documento y se cita textual.
+- Simplifica la redacción, NUNCA el contenido: en temas de seguridad, higiene, dinero o normas conserva TODOS los pasos y condiciones que marca el documento.
+
+VERIFICAR QUE SE ENTENDIÓ (sin examinar):
+- Nunca preguntes "¿me entendiste?", "¿quedó claro?" ni "¿alguna duda?". Ofrece en su lugar: "¿Quieres que te lo ponga con un ejemplo?", "¿Te lo desgloso paso por paso?", "Si un paso no te cuadra, dime cuál y lo vemos".
+- Máximo UNA oferta de seguimiento al final, y solo cuando amerite; en datos puntuales no hace falta.
+- Si el usuario dice que no entendió o repite la pregunta, no repitas igual: explícalo DISTINTO — más corto, con un ejemplo de tienda, o empezando por el resultado final.
+
+PRÁCTICA: si el usuario pide practicar, hazle UNA sola pregunta clara sobre lo que acaban de ver (sacada del documento, nunca inventada) y ESPERA su respuesta; no te contestes solo. Cuando conteste: dile primero qué tuvo bien (celébralo), luego qué le faltó citando el documento, y ofrécele otra pregunta. Si acierta 2 o 3 seguidas, felicítalo y sugiérele presentar la evaluación de ese documento en la sección Evaluaciones del chat.
+
+DIAGRAMA DE FLUJO:
+- Si el usuario pide ver el proceso en diagrama, o si explicas un procedimiento de 3 a 7 pasos con decisiones, agrega AL FINAL de tu explicación un bloque:
+\`\`\`flujo
+titulo: Nombre corto del proceso
+Primer paso, en pocas palabras
+Segundo paso
+? Pregunta de decisión (empieza con ?)
+si: Qué hacer si la respuesta es sí
+no: Qué hacer si la respuesta es no
+Paso final
+\`\`\`
+- Una línea por paso, máximo 8 pasos, frases cortas y sencillas; sin markdown ni números dentro del bloque (la numeración la pone el portal).
+- El diagrama COMPLEMENTA tu explicación, nunca la sustituye; acompáñalo de una frase hablable tipo "Te dejé los pasos dibujados en pantalla".
+- Si el proceso es trivial (1 o 2 pasos), no pongas diagrama.
 
 SOLO respondes con información contenida en los DOCUMENTOS del portal. Tu flujo:
 1. Para un tema o dato específico empieza con buscar_en_documentos (busca dentro del contenido y regresa fragmentos). Para un panorama general usa listar_documentos, que trae el resumen de cada documento para elegir por significado.
 2. Lee con leer_documento los relevantes; viene paginado (~12k caracteres por página) — pide más páginas solo si hace falta.
+3. Si tras 3 o 4 búsquedas con términos distintos el tema no aparece, YA NO busques más: registra la pregunta con registrar_pregunta_sin_respuesta y díselo al usuario con calidez.
 
-CÓMO RESPONDER:
-- Explica primero con tus palabras, como capacitador.
+CÓMO CITAR:
 - Muestra la parte textual relevante en una cita markdown (línea que empieza con >) para que el usuario VEA exactamente qué dice el documento.
 - Menciona el documento fuente por su nombre en **negritas**.
 - Cierra ofreciendo abrirlo con un link markdown: [📄 Abrir NOMBRE](/api/documentos/ID/descargar?vista=1). Si es PDF y el texto trae marcadores [Página N], usa /api/documentos/ID/descargar?vista=1#page=N para abrirlo JUSTO en esa parte y di en qué página está.
@@ -328,9 +372,11 @@ Reglas:
             try {
                 let terminado = false;
                 for (let i = 0; i < MAX_ITERACIONES && conexionViva; i++) {
+                    // 2000: un procedimiento con cita, señal de éxito y diagrama
+                    // no debe cortarse a media instrucción
                     const resultado = await correrTurnoAgente({
                         modelo,
-                        maxTokens: 1500,
+                        maxTokens: 2000,
                         sistema,
                         herramientas: HERRAMIENTAS,
                         mensajes,
@@ -348,7 +394,7 @@ Reglas:
                     for (const uso of resultado.usos) {
                         emitir({
                             t: 'estado',
-                            texto: `Consultando ${ETIQUETA_HERRAMIENTA[uso.name] ?? 'los documentos'}...`,
+                            texto: ETIQUETA_HERRAMIENTA[uso.name] ?? 'Estoy consultando los documentos…',
                         });
                         resultados.push({
                             type: 'tool_result',
@@ -359,9 +405,36 @@ Reglas:
                     mensajes.push({ role: 'user', content: resultados });
                 }
 
-                if (!terminado) {
+                // Rondas agotadas: una última llamada SIN ejecutar herramientas
+                // para que el agente cierre con calidez con lo que ya tiene,
+                // en vez del genérico "no pude completar la consulta"
+                if (!terminado && conexionViva) {
+                    const ultimo = mensajes[mensajes.length - 1];
+                    const instruccion = 'Ya usaste todas tus rondas de consulta y las herramientas quedaron deshabilitadas: responde AHORA al usuario con lo que tienes. Si no encontraste el tema, dilo con calidez. Di que anotaste su pregunta para oficina SOLO si en esta conversación de verdad ejecutaste registrar_pregunta_sin_respuesta; si no alcanzaste, sugiérele volver a preguntar más específico.';
+                    if (ultimo && ultimo.role === 'user' && Array.isArray(ultimo.content)) {
+                        (ultimo.content as Anthropic.ContentBlockParam[]).push({ type: 'text', text: instruccion });
+                    } else {
+                        mensajes.push({ role: 'user', content: instruccion });
+                    }
                     emitir({ t: 'reinicio' });
-                    emitir({ t: 'delta', texto: 'No pude completar la consulta, intenta preguntarlo de otra forma.' });
+                    const cierre = await correrTurnoAgente({
+                        modelo,
+                        maxTokens: 2000,
+                        sistema,
+                        herramientas: HERRAMIENTAS,
+                        sinHerramientas: true,
+                        mensajes,
+                        alTexto: delta => emitir({ t: 'delta', texto: delta }),
+                    });
+                    const textoCierre = cierre.contenido
+                        .filter((b): b is Anthropic.TextBlockParam => b.type === 'text')
+                        .map(b => b.text)
+                        .join('')
+                        .trim();
+                    if (!textoCierre) {
+                        emitir({ t: 'reinicio' });
+                        emitir({ t: 'delta', texto: 'No pude completar la consulta, intenta preguntarlo de otra forma.' });
+                    }
                 }
                 emitir({ t: 'fin' });
             } catch (error) {

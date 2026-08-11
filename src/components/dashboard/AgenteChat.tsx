@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 import { crearComponentesMarkdown } from "@/components/dashboard/agente-markdown"
+import { recortarFlujoAMedias } from "@/components/dashboard/diagrama-flujo"
 import { VozJarvis } from "@/components/dashboard/VozJarvis"
 import {
     ESTADO_CONVERSACION_VACIO,
@@ -17,7 +18,6 @@ import {
 } from "@/lib/agente-conversacion"
 import { guardarModelo, modeloElegido, MODELOS_AGENTES } from "@/lib/modelos-agentes"
 import { elegirVoz, errorVoz, obtenerReconocimiento, textoHablable, type ReconocimientoVoz } from "@/lib/voz"
-import type { Components } from "react-markdown"
 
 // Panel genérico de agente conversacional para los canales del chat (Kesito,
 // A.D.iA.N...). La conversación y la consulta en streaming viven en el store
@@ -25,6 +25,12 @@ import type { Components } from "react-markdown"
 // media pregunta, la respuesta sigue llegando en segundo plano y aquí solo se
 // "observa" con useSyncExternalStore. Incluye selector de modelo (persistido
 // por navegador), modo voz en línea y consola Jarvis a pantalla completa.
+
+export interface ChipSeguimiento {
+    etiqueta: string
+    /** Texto AUTOCONTENIDO que se manda como pregunta (el historial se recorta) */
+    texto: string
+}
 
 export interface ConfigAgente {
     nombre: string
@@ -36,6 +42,18 @@ export interface ConfigAgente {
     sugerencias: string[]
     vacio: React.ReactNode
     placeholder: string
+    /** Chips de seguimiento bajo la última respuesta del agente (opcional) */
+    chips?: ChipSeguimiento[]
+    /** Ofrecer "Verlo en diagrama" cuando la respuesta traiga pasos numerados */
+    chipDiagrama?: boolean
+}
+
+// El chip de diagrama solo aparece cuando la respuesta parece procedimiento
+// (lista numerada) y aún no trae un diagrama — si duda, se oculta
+const RE_PASOS_NUMERADOS = /^\s*\d+[.)]\s/m
+const CHIP_DIAGRAMA: ChipSeguimiento = {
+    etiqueta: "🗺️ Verlo en diagrama",
+    texto: "Muéstrame esos pasos como diagrama de flujo",
 }
 
 const MAX_MENSAJE = 2000
@@ -74,12 +92,17 @@ const ACENTOS = {
     },
 } as const
 
-function BurbujaAgente({ texto, nombre, acento, componentes }: {
+function BurbujaAgente({ texto, nombre, acento, enVivo = false }: {
     texto: string
     nombre: string
     acento: "ambar" | "violeta"
-    componentes: Components
+    /** true en el borrador en streaming: el diagrama descarta la línea a medias */
+    enVivo?: boolean
 }) {
+    const componentes = crearComponentesMarkdown(acento)
+    // El recorte va sobre el texto crudo (antes del render): react-markdown ya
+    // no distingue si la última línea del fence estaba completa
+    const contenido = enVivo ? recortarFlujoAMedias(texto) : texto
     return (
         <div className="max-w-[78%]">
             <p className={cn("text-[10px] font-black tracking-wider mb-0.5 px-1", ACENTOS[acento].etiqueta)}>
@@ -87,7 +110,7 @@ function BurbujaAgente({ texto, nombre, acento, componentes }: {
             </p>
             <div className="rounded-2xl rounded-bl-md px-3.5 py-2.5 border bg-white/[0.05] border-white/10 space-y-1.5">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={componentes}>
-                    {texto}
+                    {contenido}
                 </ReactMarkdown>
             </div>
         </div>
@@ -97,7 +120,6 @@ function BurbujaAgente({ texto, nombre, acento, componentes }: {
 export function AgenteChat({ claveSesion, config }: { claveSesion: string; config: ConfigAgente }) {
     const router = useRouter()
     const acento = ACENTOS[config.acento]
-    const componentesMarkdown = crearComponentesMarkdown(config.acento)
     const claveStorage = `${config.prefijoStorage}-${claveSesion}`
 
     // La conversación vive en el store del módulo: sobrevive al desmontaje de
@@ -113,6 +135,20 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
     // Errores locales del micrófono/navegador; los del agente vienen del store
     const [errorLocal, setErrorLocal] = useState("")
     const error = errorLocal || conversacion.error
+
+    // Chips de seguimiento: solo bajo la última respuesta del agente. El de
+    // diagrama exige pasos numerados y que no haya ya un diagrama (si duda, se oculta)
+    const ultimoMensaje = mensajes[mensajes.length - 1]
+    const chipsSeguimiento: ChipSeguimiento[] = ultimoMensaje?.rol === "assistant"
+        ? [
+            ...(config.chips ?? []),
+            ...(config.chipDiagrama
+                && RE_PASOS_NUMERADOS.test(ultimoMensaje.texto)
+                && !ultimoMensaje.texto.includes("```flujo")
+                ? [CHIP_DIAGRAMA]
+                : []),
+        ]
+        : []
 
     // Selector de modelo (compartido entre agentes, persistido por navegador;
     // en SSR regresa el default, igual que el toggle de voz)
@@ -407,7 +443,7 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
                     mensajes.map((m, i) => (
                         <div key={i} className={cn("flex", m.rol === "user" ? "justify-end" : "justify-start")}>
                             {m.rol === "assistant" ? (
-                                <BurbujaAgente texto={m.texto} nombre={config.nombre} acento={config.acento} componentes={componentesMarkdown} />
+                                <BurbujaAgente texto={m.texto} nombre={config.nombre} acento={config.acento} />
                             ) : (
                                 <div className="max-w-[78%] rounded-2xl rounded-br-md px-3.5 py-2.5 border bg-emerald-500/15 border-emerald-500/25">
                                     <p className="text-[13px] font-medium text-slate-100 whitespace-pre-wrap break-words">
@@ -419,11 +455,31 @@ export function AgenteChat({ claveSesion, config }: { claveSesion: string; confi
                     ))
                 )}
 
+                {/* Chips de seguimiento: un toque = una pregunta (para quien no
+                    teclea con soltura); respetan el modo voz para el ciclo
+                    manos libres y se ocultan mientras el agente responde */}
+                {!cargando && chipsSeguimiento.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pl-1">
+                        {chipsSeguimiento.map(chip => (
+                            <button
+                                key={chip.etiqueta}
+                                onClick={() => enviar(chip.texto, vozActivaRef.current)}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-[11px] font-bold text-slate-300 transition-all",
+                                    acento.sugerencia
+                                )}
+                            >
+                                {chip.etiqueta}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 {/* Respuesta en curso: texto en vivo o estado de la consulta */}
                 {cargando && (
                     borrador ? (
                         <div className="flex justify-start">
-                            <BurbujaAgente texto={borrador} nombre={config.nombre} acento={config.acento} componentes={componentesMarkdown} />
+                            <BurbujaAgente texto={borrador} nombre={config.nombre} acento={config.acento} enVivo />
                         </div>
                     ) : (
                         <div className="flex justify-start">

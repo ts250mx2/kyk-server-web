@@ -23,6 +23,11 @@ export interface TurnoAgente {
     mensajes: Anthropic.MessageParam[];
     /** Recibe cada fragmento de texto conforme el modelo lo va generando */
     alTexto: (delta: string) => void;
+    /** Prohíbe usar herramientas en este turno (el cierre cuando se agotan las
+     * rondas): las tools siguen DEFINIDAS (Anthropic las exige si el historial
+     * trae tool_use y así el prefijo cacheado no cambia) pero tool_choice none
+     * obliga a responder con texto. */
+    sinHerramientas?: boolean;
 }
 
 export interface ResultadoTurno {
@@ -77,6 +82,7 @@ async function turnoAnthropic(turno: TurnoAgente): Promise<ResultadoTurno> {
         // system como bloque para que el prefijo herramientas+system se cachee
         system: [{ type: 'text', text: turno.sistema, cache_control: { type: 'ephemeral' } }],
         tools: turno.herramientas,
+        ...(turno.sinHerramientas ? { tool_choice: { type: 'none' as const } } : {}),
         messages: turno.mensajes,
     });
     streamModelo.on('text', turno.alTexto);
@@ -173,13 +179,22 @@ async function turnoOpenAI(turno: TurnoAgente): Promise<ResultadoTurno> {
         },
     }));
 
-    const stream = await openai.chat.completions.create({
+    const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
         model: turno.modelo,
         max_completion_tokens: turno.maxTokens + (esRazonador(turno.modelo) ? MARGEN_RAZONAMIENTO : 0),
         messages: aMensajesOpenAI(turno.sistema, turno.mensajes),
         ...(herramientas.length > 0 ? { tools: herramientas } : {}),
+        ...(turno.sinHerramientas && herramientas.length > 0 ? { tool_choice: 'none' as const } : {}),
         stream: true,
-    });
+    };
+    // Los gpt-5.6* en chat.completions no aceptan function tools con el
+    // razonamiento activo: la API exige reasoning_effort 'none' (400 si no).
+    // La alternativa sería migrar a /v1/responses; por ahora se sacrifica el
+    // razonamiento cuando hay herramientas.
+    if (/^gpt-5\.6/i.test(turno.modelo.trim()) && herramientas.length > 0) {
+        (params as unknown as Record<string, unknown>).reasoning_effort = 'none';
+    }
+    const stream = await openai.chat.completions.create(params);
 
     let texto = '';
     const llamadas = new Map<number, { id: string; nombre: string; argumentos: string }>();
