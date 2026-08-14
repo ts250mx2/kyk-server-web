@@ -136,6 +136,63 @@ const TABLAS = [
         IdTienda INT NOT NULL DEFAULT 0,
         UltimaVez DATETIME NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS encuestas_clientes_config (
+        IdConfig INT NOT NULL PRIMARY KEY,
+        Titulo VARCHAR(300) NOT NULL,
+        Subtitulo VARCHAR(300) NULL,
+        Subtitulo2 VARCHAR(300) NULL,
+        UmbralComentario INT NOT NULL DEFAULT 3,
+        TituloComentario VARCHAR(300) NULL,
+        TextoComentario VARCHAR(300) NULL,
+        RegaloActivo TINYINT NOT NULL DEFAULT 1,
+        TituloRegalo VARCHAR(300) NULL,
+        TextoRegalo VARCHAR(300) NULL,
+        TextoPromos VARCHAR(300) NULL,
+        TextoBotonEnviar VARCHAR(300) NULL,
+        TituloGracias VARCHAR(300) NULL,
+        TextoGracias VARCHAR(300) NULL,
+        FechaAct DATETIME NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS encuestas_clientes_preguntas (
+        IdPregunta INT AUTO_INCREMENT PRIMARY KEY,
+        Pregunta VARCHAR(255) NOT NULL,
+        TipoPregunta VARCHAR(20) NOT NULL DEFAULT 'estrellas',
+        Etiquetas TEXT NULL,
+        Orden INT NOT NULL DEFAULT 0,
+        Activa TINYINT NOT NULL DEFAULT 1,
+        FechaAct DATETIME NULL,
+        KEY idx_activa_orden (Activa, Orden)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS encuestas_clientes_qr (
+        IdTienda INT NOT NULL PRIMARY KEY,
+        Tienda VARCHAR(100) NOT NULL DEFAULT '',
+        Uuid VARCHAR(36) NOT NULL,
+        Activa TINYINT NOT NULL DEFAULT 1,
+        FechaAct DATETIME NULL,
+        UNIQUE KEY idx_uuid (Uuid)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS encuestas_clientes_respuestas (
+        IdRespuesta INT AUTO_INCREMENT PRIMARY KEY,
+        IdTienda INT NOT NULL,
+        Correo VARCHAR(255) NULL,
+        Telefono VARCHAR(20) NULL,
+        AceptaPromos TINYINT NOT NULL DEFAULT 0,
+        Comentario TEXT NULL,
+        Fecha DATETIME NOT NULL,
+        KEY idx_fecha (Fecha),
+        KEY idx_tienda_fecha (IdTienda, Fecha)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS encuestas_clientes_detalle (
+        IdDetalle INT AUTO_INCREMENT PRIMARY KEY,
+        IdRespuesta INT NOT NULL,
+        IdPregunta INT NOT NULL,
+        Pregunta VARCHAR(255) NOT NULL,
+        TipoPregunta VARCHAR(20) NOT NULL DEFAULT 'estrellas',
+        Valor INT NOT NULL,
+        Etiqueta VARCHAR(60) NULL,
+        KEY idx_respuesta (IdRespuesta),
+        KEY idx_pregunta (IdPregunta, Valor)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS portal_contenido_diario (
         Fecha DATE NOT NULL PRIMARY KEY,
         TipTitulo VARCHAR(200) NOT NULL DEFAULT '',

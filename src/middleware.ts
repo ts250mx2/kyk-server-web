@@ -46,8 +46,9 @@ export async function middleware(request: NextRequest) {
         }), origen);
     }
 
-    // Permitir login y APIs sin protección de sesión general (las APIs validan sesión propia).
-    if (pathname === '/login' || pathname.startsWith('/api')) {
+    // Permitir login, la encuesta pública de clientes (acceso por QR/UUID, sin
+    // cuenta) y APIs sin protección de sesión general (cada API valida la suya).
+    if (pathname === '/login' || pathname.startsWith('/encuesta/') || pathname.startsWith('/api')) {
         // Si ya hay sesión activa e intenta ir a login, redirigir al dashboard.
         if (session && pathname === '/login') {
             try {

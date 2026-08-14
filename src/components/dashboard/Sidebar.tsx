@@ -59,6 +59,7 @@ const menuSections: MenuSection[] = [
             { name: "Comunicados", emoji: "📣", href: "/dashboard/comunicados" },
             { name: "Documentos", emoji: "📁", href: "/dashboard/documentos" },
             { name: "Chat", emoji: "💬", href: "/dashboard/chat" },
+            { name: "Encuestas", emoji: "⭐", href: "/dashboard/encuestas" },
         ]
     },
     {
