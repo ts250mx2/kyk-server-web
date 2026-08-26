@@ -5,6 +5,7 @@ import { Search, Loader2, AlertTriangle, ScanBarcode, Boxes, History } from "luc
 import { cn } from "@/lib/utils"
 import { fmtMoney, fmtInt, fmtFechaHora } from "@/lib/format"
 import { MovimientosArticuloModal } from "@/components/dashboard/MovimientosArticulo"
+import { ExistenciaOtrasTiendas } from "@/components/dashboard/ExistenciaOtrasTiendas"
 
 interface ArticuloItem {
     codigoInterno: number
@@ -363,6 +364,11 @@ export default function ExistenciasPage() {
                         </p>
                     )}
                 </div>
+            )}
+
+            {/* Existencia del mismo artículo en las demás sucursales (carga aparte) */}
+            {existencia && !cargandoExi && (
+                <ExistenciaOtrasTiendas key={existencia.articulo.codigoInterno} codigoInterno={existencia.articulo.codigoInterno} />
             )}
 
             {/* Histórico */}

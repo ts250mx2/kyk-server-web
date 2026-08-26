@@ -11,6 +11,8 @@ export const maxDuration = 120;
 // arrastre a las demás.
 const TIMEOUT_POR_TIENDA_MS = 20000;
 
+type MotivoSinCifra = 'sin-conexion' | 'no-catalogo' | null;
+
 interface ExistenciaEnTienda {
     idTienda: number;
     tienda: string;
@@ -18,8 +20,10 @@ interface ExistenciaEnTienda {
     diasCobertura: number | null;
     medidaVenta: string;
     precio: number | null;
-    /** Motivo por el que no se pudo obtener (sin conexión, no existe ahí...). */
+    /** Texto para el usuario cuando no hay cifra (sin conexión, no existe ahí...). */
     nota: string | null;
+    /** Motivo tipado: la UI decide por él, no por el texto de `nota`. */
+    motivo: MotivoSinCifra;
 }
 
 function conTimeout<T>(promesa: Promise<T>, ms: number): Promise<T> {
@@ -66,7 +70,7 @@ export async function GET(request: Request) {
                         calcularExistencia(t.IdTienda, codigoInterno),
                         TIMEOUT_POR_TIENDA_MS
                     );
-                    if (!r) return { ...base, nota: 'No está en el catálogo' };
+                    if (!r) return { ...base, nota: 'No está en el catálogo', motivo: 'no-catalogo' };
                     return {
                         idTienda: t.IdTienda,
                         tienda: t.Tienda,
@@ -75,10 +79,11 @@ export async function GET(request: Request) {
                         medidaVenta: r.articulo.medidaVenta,
                         precio: r.articulo.precio,
                         nota: null,
+                        motivo: null,
                     };
                 } catch (e) {
                     console.warn(`Existencia de ${codigoInterno} en ${t.Tienda}:`, e);
-                    return { ...base, nota: 'Sin conexión con la tienda' };
+                    return { ...base, nota: 'Sin conexión con la tienda', motivo: 'sin-conexion' };
                 }
             })
         );
@@ -90,7 +95,7 @@ export async function GET(request: Request) {
             return a.tienda.localeCompare(b.tienda, 'es');
         });
 
-        return NextResponse.json({ codigoInterno, tiendas: resultados });
+        return NextResponse.json({ codigoInterno, idTiendaSesion: session.idTienda, tiendas: resultados });
     } catch (error) {
         console.error('Error al calcular existencias por tienda:', error);
         return NextResponse.json(
