@@ -2,49 +2,60 @@
 
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
-import { CheckCircle2, Loader2, Send, Star } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Loader2, RotateCcw, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
+import PreguntaPublica from "@/components/encuestas/PreguntaPublica"
+import CapturaTienda, { CAPTURA_VACIA, CONTACTO_VACIO, type Contacto, type DatosCaptura } from "@/components/encuestas/CapturaTienda"
+import { esRespuestaBaja, type ConfigEncuesta, type PreguntaEncuesta } from "@/lib/encuestas-tipos"
+import type { TicketValidado } from "@/lib/encuestas-ticket"
 
 // Encuesta PÚBLICA de satisfacción: el cliente llega escaneando el QR de su
 // sucursal (la URL identifica a la tienda por UUID, sin login). Móvil primero:
-// estrellas grandes, opciones de un toque, comentario si algo salió mal y
-// captura opcional de contacto para promociones.
+// escala 1-10 de recomendación (NPS), Sí/No de un toque, respuestas abiertas,
+// comentario si algo salió mal y captura opcional de contacto para promociones.
+// Si la abre la TIENDA con su sesión (liga del encabezado del panel), además
+// captura nombre, foto y ticket del cliente, y puede encadenar encuestas.
 
-interface Pregunta {
+interface RespuestaEnviada {
     idPregunta: number
-    pregunta: string
-    tipo: "estrellas" | "opciones"
-    etiquetas: string[]
+    valor?: number
+    texto?: string
 }
 
-interface Config {
-    titulo: string
-    subtitulo: string
-    subtitulo2: string
-    umbralComentario: number
-    tituloComentario: string
-    textoComentario: string
-    regaloActivo: boolean
-    tituloRegalo: string
-    textoRegalo: string
-    textoPromos: string
-    textoBotonEnviar: string
-    tituloGracias: string
-    textoGracias: string
+interface ResultadoCaptura {
+    ticketValido: boolean | null
+    ticketAntiguo: boolean
+    errorTicket: string | null
+}
+
+/** Arma lo que se manda al servidor: solo preguntas contestadas. */
+function armarRespuestas(preguntas: PreguntaEncuesta[], valores: Record<number, number>, textos: Record<number, string>): RespuestaEnviada[] {
+    return preguntas.flatMap<RespuestaEnviada>(p => {
+        const texto = textos[p.idPregunta]?.trim() || undefined
+        if (p.tipo === "texto") return texto ? [{ idPregunta: p.idPregunta, texto }] : []
+        const valor = valores[p.idPregunta]
+        return valor === undefined ? [] : [{ idPregunta: p.idPregunta, valor, texto }]
+    })
 }
 
 export default function EncuestaPublicaPage() {
     const { uuid } = useParams<{ uuid: string }>()
     const [tienda, setTienda] = useState("")
-    const [config, setConfig] = useState<Config | null>(null)
-    const [preguntas, setPreguntas] = useState<Pregunta[]>([])
+    // Usuario de la tienda cuando la encuesta se abre con sesión de la misma sucursal
+    const [modoTienda, setModoTienda] = useState<{ usuario: string } | null>(null)
+    const [sesionOtraTienda, setSesionOtraTienda] = useState("")
+    const [config, setConfig] = useState<ConfigEncuesta | null>(null)
+    const [preguntas, setPreguntas] = useState<PreguntaEncuesta[]>([])
     const [noDisponible, setNoDisponible] = useState(false)
 
     const [valores, setValores] = useState<Record<number, number>>({})
+    const [textos, setTextos] = useState<Record<number, string>>({})
     const [comentario, setComentario] = useState("")
-    const [correo, setCorreo] = useState("")
-    const [telefono, setTelefono] = useState("")
-    const [aceptaPromos, setAceptaPromos] = useState(true)
+    // Contacto para promociones: al final para el público, junto al nombre en modo tienda
+    const [contacto, setContacto] = useState<Contacto>(CONTACTO_VACIO)
+    const [captura, setCaptura] = useState<DatosCaptura>(CAPTURA_VACIA)
+    const [ticket, setTicket] = useState<TicketValidado | null>(null)
+    const [resultadoCaptura, setResultadoCaptura] = useState<ResultadoCaptura | null>(null)
     const [enviando, setEnviando] = useState(false)
     const [enviada, setEnviada] = useState(false)
     const [error, setError] = useState("")
@@ -59,20 +70,20 @@ export default function EncuestaPublicaPage() {
                 setTienda(json.tienda ?? "")
                 setConfig(json.config)
                 setPreguntas(json.preguntas ?? [])
+                setModoTienda(json.modoTienda?.usuario !== undefined ? { usuario: String(json.modoTienda.usuario) } : null)
+                setSesionOtraTienda(json.sesionOtraTienda ? String(json.sesionOtraTienda) : "")
             })
             .catch(() => { if (activo) setNoDisponible(true) })
         return () => { activo = false }
     }, [uuid])
 
-    const responder = (idPregunta: number, valor: number) => {
-        setValores(prev => ({ ...prev, [idPregunta]: valor }))
-    }
+    const respuestas = armarRespuestas(preguntas, valores, textos)
+    const contestadas = respuestas.length
 
     // El comentario se pide cuando alguna respuesta cae en el umbral o debajo
     const hayBaja = config
-        ? Object.values(valores).some(v => v <= config.umbralComentario)
+        ? preguntas.some(p => valores[p.idPregunta] !== undefined && esRespuestaBaja(p.tipo, p.etiquetas, valores[p.idPregunta], config.umbralComentario))
         : false
-    const contestadas = Object.keys(valores).length
 
     const enviar = async () => {
         if (enviando || contestadas === 0) return
@@ -83,15 +94,17 @@ export default function EncuestaPublicaPage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    respuestas: Object.entries(valores).map(([id, valor]) => ({ idPregunta: Number(id), valor })),
+                    respuestas,
                     comentario: comentario || undefined,
-                    correo: correo || undefined,
-                    telefono: telefono || undefined,
-                    aceptaPromos,
+                    correo: contacto.correo || undefined,
+                    telefono: contacto.telefono || undefined,
+                    aceptaPromos: contacto.aceptaPromos,
+                    captura: modoTienda ? captura : undefined,
                 }),
             })
             const json = await res.json().catch(() => ({}))
             if (!res.ok) throw new Error(json.error || "No fue posible enviar tu respuesta")
+            setResultadoCaptura(json.captura ?? null)
             setEnviada(true)
             window.scrollTo({ top: 0 })
         } catch (err: unknown) {
@@ -99,6 +112,20 @@ export default function EncuestaPublicaPage() {
         } finally {
             setEnviando(false)
         }
+    }
+
+    // Modo tienda: siguiente cliente sin recargar
+    const nuevaEncuesta = () => {
+        setValores({})
+        setTextos({})
+        setComentario("")
+        setContacto(CONTACTO_VACIO)
+        setCaptura(CAPTURA_VACIA)
+        setTicket(null)
+        setResultadoCaptura(null)
+        setError("")
+        setEnviada(false)
+        window.scrollTo({ top: 0 })
     }
 
     const tarjeta = "bg-white/[0.05] border border-white/10 rounded-2xl p-4"
@@ -122,6 +149,13 @@ export default function EncuestaPublicaPage() {
     }
 
     if (enviada) {
+        const avisoTicket = resultadoCaptura?.errorTicket
+            ? `El ticket no se pudo validar: ${resultadoCaptura.errorTicket}`
+            : resultadoCaptura?.ticketValido === false
+                ? "El total capturado no coincidió con el del ticket; quedó registrado así en el historial."
+                : resultadoCaptura?.ticketAntiguo
+                    ? "El ticket tiene más de un mes; quedó registrado con esa advertencia."
+                    : ""
         return (
             <main className="min-h-screen bg-[#060a12] flex items-center justify-center p-6">
                 <div className="text-center max-w-md">
@@ -133,6 +167,21 @@ export default function EncuestaPublicaPage() {
                     <p className="text-[11px] font-black uppercase tracking-widest text-emerald-400/80 mt-6">
                         KYK · {tienda}
                     </p>
+                    {modoTienda && (
+                        <div className="mt-8 space-y-3">
+                            {avisoTicket && (
+                                <p className="flex items-center justify-center gap-1.5 text-[12px] font-bold text-amber-300">
+                                    <AlertTriangle className="h-4 w-4 shrink-0" /> {avisoTicket}
+                                </p>
+                            )}
+                            <button
+                                onClick={nuevaEncuesta}
+                                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-cyan-500 text-slate-950 font-black text-[14px] uppercase tracking-widest hover:brightness-110 transition-all"
+                            >
+                                <RotateCcw className="h-5 w-5" /> Nueva encuesta
+                            </button>
+                        </div>
+                    )}
                 </div>
             </main>
         )
@@ -155,58 +204,41 @@ export default function EncuestaPublicaPage() {
                     )}
                 </header>
 
-                {/* Preguntas */}
-                {preguntas.map(p => (
-                    <section key={p.idPregunta} className={tarjeta}>
-                        <p className="text-[14px] font-black text-white leading-snug">{p.pregunta}</p>
-                        {p.tipo === "estrellas" ? (
-                            <div className="mt-3">
-                                <div className="flex justify-center gap-2">
-                                    {[1, 2, 3, 4, 5].map(v => (
-                                        <button
-                                            key={v}
-                                            onClick={() => responder(p.idPregunta, v)}
-                                            className="p-1 transition-transform active:scale-90"
-                                            aria-label={`${v} de 5`}
-                                        >
-                                            <Star className={cn(
-                                                "h-9 w-9 transition-colors",
-                                                (valores[p.idPregunta] ?? 0) >= v
-                                                    ? "text-amber-400 fill-amber-400"
-                                                    : "text-slate-700"
-                                            )} />
-                                        </button>
-                                    ))}
-                                </div>
-                                {valores[p.idPregunta] && p.etiquetas[valores[p.idPregunta] - 1] && (
-                                    <p className="text-center text-[12px] font-black text-amber-300 mt-1.5">
-                                        {p.etiquetas[valores[p.idPregunta] - 1]}
-                                    </p>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="mt-3 space-y-1.5">
-                                {p.etiquetas.map((etiqueta, i) => {
-                                    const valor = p.etiquetas.length - i
-                                    const activa = valores[p.idPregunta] === valor
-                                    return (
-                                        <button
-                                            key={i}
-                                            onClick={() => responder(p.idPregunta, valor)}
-                                            className={cn(
-                                                "w-full text-left px-4 py-2.5 rounded-xl border text-[13px] font-bold transition-all",
-                                                activa
-                                                    ? "bg-emerald-500/20 border-emerald-400/50 text-emerald-200"
-                                                    : "bg-white/[0.03] border-white/10 text-slate-300 hover:border-white/25"
-                                            )}
-                                        >
-                                            {etiqueta}
-                                        </button>
-                                    )
-                                })}
-                            </div>
+                {/* Captura de la tienda (solo con sesión de la misma sucursal) */}
+                {modoTienda && (
+                    <CapturaTienda
+                        uuid={uuid}
+                        tienda={tienda}
+                        usuario={modoTienda.usuario}
+                        datos={captura}
+                        onChange={setCaptura}
+                        contacto={contacto}
+                        onContacto={setContacto}
+                        textoPromos={config.textoPromos}
+                        ticket={ticket}
+                        onTicket={setTicket}
+                    />
+                )}
+                {sesionOtraTienda && (
+                    <p className="text-[11px] font-bold text-amber-300/90 text-center">
+                        Tu sesión es de {sesionOtraTienda}; esta encuesta es de {tienda}. La captura de cliente y ticket no está disponible.
+                    </p>
+                )}
+
+                {/* Preguntas; el encabezado de sección se pinta una vez por bloque */}
+                {preguntas.map((p, i) => (
+                    <div key={p.idPregunta} className="space-y-4">
+                        {p.seccion && p.seccion !== preguntas[i - 1]?.seccion && (
+                            <h2 className="text-[13px] font-black text-emerald-300 uppercase tracking-widest pt-2">{p.seccion}</h2>
                         )}
-                    </section>
+                        <PreguntaPublica
+                            pregunta={p}
+                            valor={valores[p.idPregunta]}
+                            texto={textos[p.idPregunta] ?? ""}
+                            onValor={valor => setValores(prev => ({ ...prev, [p.idPregunta]: valor }))}
+                            onTexto={texto => setTextos(prev => ({ ...prev, [p.idPregunta]: texto }))}
+                        />
+                    </div>
                 ))}
 
                 {/* Comentario cuando algo salió mal */}
@@ -227,24 +259,24 @@ export default function EncuestaPublicaPage() {
                     </section>
                 )}
 
-                {/* Contacto para promociones */}
-                {config.regaloActivo && (
+                {/* Contacto para promociones (en modo tienda va junto al nombre del cliente) */}
+                {config.regaloActivo && !modoTienda && (
                     <section className={cn(tarjeta, "border-emerald-400/25")}>
                         <p className="text-[14px] font-black text-emerald-300">{config.tituloRegalo}</p>
                         {config.textoRegalo && (
                             <p className="text-[12px] font-medium text-slate-400 mt-1">{config.textoRegalo}</p>
                         )}
                         <input
-                            value={telefono}
-                            onChange={e => setTelefono(e.target.value)}
+                            value={contacto.telefono}
+                            onChange={e => setContacto({ ...contacto, telefono: e.target.value })}
                             type="tel"
                             maxLength={20}
                             placeholder="Tu teléfono (opcional)"
                             className="mt-2.5 w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-[14px] font-medium text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-400/50"
                         />
                         <input
-                            value={correo}
-                            onChange={e => setCorreo(e.target.value)}
+                            value={contacto.correo}
+                            onChange={e => setContacto({ ...contacto, correo: e.target.value })}
                             type="email"
                             maxLength={255}
                             placeholder="Tu correo (opcional)"
@@ -253,8 +285,8 @@ export default function EncuestaPublicaPage() {
                         <label className="mt-2.5 flex items-center gap-2 text-[12px] font-bold text-slate-400">
                             <input
                                 type="checkbox"
-                                checked={aceptaPromos}
-                                onChange={e => setAceptaPromos(e.target.checked)}
+                                checked={contacto.aceptaPromos}
+                                onChange={e => setContacto({ ...contacto, aceptaPromos: e.target.checked })}
                                 className="h-4 w-4 accent-emerald-500"
                             />
                             {config.textoPromos}

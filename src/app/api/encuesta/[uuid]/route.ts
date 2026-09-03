@@ -1,34 +1,84 @@
 import { NextResponse } from 'next/server';
 import { portalQuery } from '@/lib/portal-db';
+import { getSession } from '@/lib/session';
 import {
     esCorreoValido,
     esTelefonoValido,
+    esValorValido,
     etiquetaDeValor,
     MAX_CORREO_LEN,
     MAX_TELEFONO_LEN,
     obtenerConfig,
     obtenerPreguntasActivas,
+    requiereSeguimiento,
     resolverUuidTienda,
     sanitizarComentario,
+    sanitizarRespuestaTexto,
     sanitizarTexto,
-    valorMaximo,
+    type PreguntaEncuesta,
 } from '@/lib/encuestas-clientes';
+import { armarCaptura, guardarCaptura } from '@/lib/encuestas-captura-db';
+import { crearLimitador, leerJsonLimitado } from '@/lib/limites-peticion';
 
 export const dynamic = 'force-dynamic';
 
 // Endpoint PÚBLICO de la encuesta de clientes (el QR de cada sucursal apunta
 // aquí): GET entrega la configuración y preguntas; POST recibe la respuesta.
-// La sucursal se resuelve SOLO por el UUID de la URL. Rate limit por IP.
-const LIMITE_VENTANA_MS = 60_000;
-const LIMITE_ENVIOS_POR_MINUTO = 5;
-const ventanas = new Map<string, number[]>();
+// La sucursal se resuelve SOLO por el UUID de la URL. Cuota por IP para el
+// público; con sesión de la MISMA sucursal ("modo tienda") la cuota es por
+// usuario y además se acepta la captura del cliente (nombre, foto, ticket),
+// que se guarda como historial.
+const VENTANA_MS = 60_000;
+const limitePublico = crearLimitador(5, VENTANA_MS);
+const limiteTienda = crearLimitador(30, VENTANA_MS);
+// Una respuesta son unas cuantas cifras y textos cortos: cualquier cuerpo
+// mayor es abuso y se corta al leerlo. Con sesión de tienda viaja además la
+// foto del cliente (JPEG reducido en el navegador).
+const MAX_CUERPO_BYTES = 64 * 1024;
+const MAX_CUERPO_BYTES_TIENDA = 2 * 1024 * 1024;
 
-function excedeLimite(ip: string): boolean {
-    const ahora = Date.now();
-    const recientes = (ventanas.get(ip) ?? []).filter(t => ahora - t < LIMITE_VENTANA_MS);
-    const excede = recientes.length >= LIMITE_ENVIOS_POR_MINUTO;
-    ventanas.set(ip, excede ? recientes : [...recientes, ahora]);
-    return excede;
+interface DetalleRespuesta {
+    idPregunta: number;
+    pregunta: string;
+    tipo: string;
+    valor: number;
+    etiqueta: string | null;
+    texto: string | null;
+}
+
+/**
+ * Valida una respuesta cruda contra su pregunta y arma el snapshot; null si no
+ * cuenta. Una pregunta abierta vale por su texto; en las demás el texto es el
+ * seguimiento y solo se conserva cuando la respuesta lo pedía.
+ */
+function armarDetalle(pregunta: PreguntaEncuesta, cruda: Record<string, unknown>): DetalleRespuesta | null {
+    const base = { idPregunta: pregunta.idPregunta, pregunta: pregunta.pregunta, tipo: pregunta.tipo };
+    const texto = sanitizarRespuestaTexto(cruda.texto);
+    if (pregunta.tipo === 'texto') {
+        return texto ? { ...base, valor: 0, etiqueta: null, texto } : null;
+    }
+    const valor = Number(cruda.valor);
+    if (!esValorValido(pregunta.tipo, pregunta.etiquetas, valor)) return null;
+    const pideSeguimiento = Boolean(pregunta.seguimiento) && requiereSeguimiento(pregunta.tipo, pregunta.etiquetas, valor);
+    return {
+        ...base,
+        valor,
+        etiqueta: etiquetaDeValor(pregunta.tipo, pregunta.etiquetas, valor),
+        texto: pideSeguimiento ? texto : null,
+    };
+}
+
+/** Solo respuestas a preguntas activas, válidas y sin repetir pregunta. */
+function armarRespuestas(preguntas: PreguntaEncuesta[], crudas: unknown): DetalleRespuesta[] {
+    const porId = new Map(preguntas.map(p => [p.idPregunta, p]));
+    const lista = Array.isArray(crudas) ? crudas.slice(0, preguntas.length) : [];
+    return lista.reduce<DetalleRespuesta[]>((acumulado, r) => {
+        const cruda = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
+        const pregunta = porId.get(Number(cruda.idPregunta));
+        if (!pregunta || acumulado.some(d => d.idPregunta === pregunta.idPregunta)) return acumulado;
+        const detalle = armarDetalle(pregunta, cruda);
+        return detalle ? [...acumulado, detalle] : acumulado;
+    }, []);
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ uuid: string }> }) {
@@ -38,8 +88,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ uuid
         if (!tienda) {
             return NextResponse.json({ error: 'Esta encuesta no está disponible' }, { status: 404 });
         }
-        const [config, preguntas] = await Promise.all([obtenerConfig(), obtenerPreguntasActivas()]);
-        return NextResponse.json({ tienda: tienda.tienda, config, preguntas });
+        const [config, preguntas, sesion] = await Promise.all([obtenerConfig(), obtenerPreguntasActivas(), getSession()]);
+        // Modo tienda solo con sesión de la misma sucursal; el id de tienda no sale al público
+        const modoTienda = sesion && sesion.idTienda === tienda.idTienda ? { usuario: sesion.name } : null;
+        const sesionOtraTienda = sesion && !modoTienda ? sesion.tienda : null;
+        return NextResponse.json({ tienda: tienda.tienda, config, preguntas, modoTienda, sesionOtraTienda });
     } catch (error) {
         console.error('Error cargando encuesta pública:', error);
         return NextResponse.json({ error: 'No fue posible cargar la encuesta' }, { status: 502 });
@@ -54,39 +107,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ uui
             return NextResponse.json({ error: 'Esta encuesta no está disponible' }, { status: 404 });
         }
 
+        // Modo tienda: sesión de la misma sucursal que la liga
+        const sesion = await getSession();
+        const sesionTienda = sesion && sesion.idTienda === tienda.idTienda ? sesion : null;
+
         const ip = (request.headers.get('x-forwarded-for') ?? 'local').split(',')[0].trim();
-        if (excedeLimite(ip)) {
+        const excede = sesionTienda ? limiteTienda.excede(sesionTienda.codigobarras) : limitePublico.excede(ip);
+        if (excede) {
             return NextResponse.json({ error: 'Espera un momento antes de enviar otra respuesta.' }, { status: 429 });
         }
 
-        let cuerpo: Record<string, unknown>;
-        try {
-            cuerpo = await request.json();
-        } catch {
-            return NextResponse.json({ error: 'Cuerpo inválido' }, { status: 400 });
-        }
+        const lectura = await leerJsonLimitado(request, sesionTienda ? MAX_CUERPO_BYTES_TIENDA : MAX_CUERPO_BYTES);
+        if (!lectura.ok) return NextResponse.json({ error: lectura.error }, { status: lectura.status });
+        const { cuerpo } = lectura;
 
-        const preguntas = await obtenerPreguntasActivas();
-        const porId = new Map(preguntas.map(p => [p.idPregunta, p]));
-
-        // Solo respuestas a preguntas activas, con valor dentro del rango
-        const crudas = Array.isArray(cuerpo.respuestas) ? cuerpo.respuestas : [];
-        const detalle: { idPregunta: number; pregunta: string; tipo: string; valor: number; etiqueta: string | null }[] = [];
-        for (const r of crudas.slice(0, preguntas.length)) {
-            const idPregunta = Number((r as Record<string, unknown>)?.idPregunta);
-            const valor = Number((r as Record<string, unknown>)?.valor);
-            const pregunta = porId.get(idPregunta);
-            if (!pregunta || !Number.isInteger(valor)) continue;
-            if (valor < 1 || valor > valorMaximo(pregunta.tipo, pregunta.etiquetas)) continue;
-            if (detalle.some(d => d.idPregunta === idPregunta)) continue;
-            detalle.push({
-                idPregunta,
-                pregunta: pregunta.pregunta,
-                tipo: pregunta.tipo,
-                valor,
-                etiqueta: etiquetaDeValor(pregunta.tipo, pregunta.etiquetas, valor),
-            });
-        }
+        const detalle = armarRespuestas(await obtenerPreguntasActivas(), cuerpo.respuestas);
         if (detalle.length === 0) {
             return NextResponse.json({ error: 'Contesta al menos una pregunta' }, { status: 400 });
         }
@@ -97,6 +132,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ uui
         const telefono = telefonoCrudo && esTelefonoValido(telefonoCrudo) ? telefonoCrudo : null;
         const comentario = sanitizarComentario(cuerpo.comentario);
         const aceptaPromos = cuerpo.aceptaPromos === true || cuerpo.aceptaPromos === 1 ? 1 : 0;
+        // La captura se re-valida aquí contra la tienda; lo que diga el navegador no se guarda
+        const captura = sesionTienda ? await armarCaptura(cuerpo.captura, sesionTienda) : null;
 
         const insercion = (await portalQuery(
             `INSERT INTO encuestas_clientes_respuestas (IdTienda, Correo, Telefono, AceptaPromos, Comentario, Fecha)
@@ -106,13 +143,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ uui
 
         for (const d of detalle) {
             await portalQuery(
-                `INSERT INTO encuestas_clientes_detalle (IdRespuesta, IdPregunta, Pregunta, TipoPregunta, Valor, Etiqueta)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [insercion.insertId, d.idPregunta, d.pregunta, d.tipo, d.valor, d.etiqueta]
+                `INSERT INTO encuestas_clientes_detalle
+                    (IdRespuesta, IdPregunta, Pregunta, TipoPregunta, Valor, Etiqueta, Texto)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [insercion.insertId, d.idPregunta, d.pregunta, d.tipo, d.valor, d.etiqueta, d.texto]
             );
         }
+        if (captura && sesionTienda) {
+            await guardarCaptura(insercion.insertId, tienda.idTienda, captura, sesionTienda);
+        }
 
-        return NextResponse.json({ ok: true });
+        return NextResponse.json({
+            ok: true,
+            captura: captura
+                ? { ticketValido: captura.ticket?.coincide ?? null, ticketAntiguo: captura.ticket?.antiguo ?? false, errorTicket: captura.errorTicket }
+                : null,
+        });
     } catch (error) {
         console.error('Error guardando respuesta de encuesta:', error);
         return NextResponse.json({ error: 'No fue posible guardar tu respuesta' }, { status: 502 });

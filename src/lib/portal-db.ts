@@ -158,6 +158,8 @@ const TABLAS = [
         Pregunta VARCHAR(255) NOT NULL,
         TipoPregunta VARCHAR(20) NOT NULL DEFAULT 'estrellas',
         Etiquetas TEXT NULL,
+        Seccion VARCHAR(120) NULL,
+        Seguimiento VARCHAR(255) NULL,
         Orden INT NOT NULL DEFAULT 0,
         Activa TINYINT NOT NULL DEFAULT 1,
         FechaAct DATETIME NULL,
@@ -190,8 +192,30 @@ const TABLAS = [
         TipoPregunta VARCHAR(20) NOT NULL DEFAULT 'estrellas',
         Valor INT NOT NULL,
         Etiqueta VARCHAR(60) NULL,
+        Texto TEXT NULL,
         KEY idx_respuesta (IdRespuesta),
         KEY idx_pregunta (IdPregunta, Valor)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS encuestas_clientes_captura (
+        IdRespuesta INT NOT NULL PRIMARY KEY,
+        IdTienda INT NOT NULL,
+        NombreCliente VARCHAR(100) NULL,
+        FotoCliente MEDIUMTEXT NULL,
+        NumeroTicket VARCHAR(20) NULL,
+        IdComputadora INT NULL,
+        IdVenta INT NULL,
+        TotalCapturado DECIMAL(12,2) NULL,
+        TotalTicket DECIMAL(12,2) NULL,
+        FechaTicket DATETIME NULL,
+        TicketValido TINYINT NULL,
+        TicketAntiguo TINYINT NOT NULL DEFAULT 0,
+        DetalleTicket TEXT NULL,
+        ErrorTicket VARCHAR(255) NULL,
+        CapturadoPor VARCHAR(45) NOT NULL DEFAULT '',
+        CapturadoPorNombre VARCHAR(100) NOT NULL DEFAULT '',
+        Fecha DATETIME NOT NULL,
+        KEY idx_tienda_fecha (IdTienda, Fecha),
+        KEY idx_ticket (NumeroTicket)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS portal_contenido_diario (
         Fecha DATE NOT NULL PRIMARY KEY,
@@ -272,6 +296,11 @@ const MIGRACIONES = [
     // Chats directos: el canal dm-<codigoA>-<codigoB> necesita más de 30 chars
     `ALTER TABLE chat_mensajes MODIFY Canal VARCHAR(100) NOT NULL`,
     `ALTER TABLE chat_lecturas MODIFY Canal VARCHAR(100) NOT NULL`,
+    // Encuestas de clientes con la plantilla de Kesos y Kosas: encabezado de
+    // sección, pregunta abierta de seguimiento y respuestas de texto
+    `ALTER TABLE encuestas_clientes_preguntas ADD COLUMN Seccion VARCHAR(120) NULL`,
+    `ALTER TABLE encuestas_clientes_preguntas ADD COLUMN Seguimiento VARCHAR(255) NULL`,
+    `ALTER TABLE encuestas_clientes_detalle ADD COLUMN Texto TEXT NULL`,
 ];
 
 let esquemaListo: Promise<void> | null = null;

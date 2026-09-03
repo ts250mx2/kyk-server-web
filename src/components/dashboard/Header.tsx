@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Store, User, LogOut, Database, Bell } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { LigaEncuesta } from "@/components/dashboard/LigaEncuesta"
 
 interface SessionUser {
     name: string
@@ -107,6 +108,9 @@ export function Header({ isCollapsed = false }: { isCollapsed?: boolean }) {
 
             {/* Usuario y salir */}
             <div className="flex items-center gap-3">
+                {/* Encuesta de la sucursal: QR para la tableta, abrir o copiar la liga */}
+                <LigaEncuesta />
+
                 <Link
                     href="/dashboard/chat?canal=kesito"
                     className="p-2 rounded-xl bg-white/[0.05] border border-white/10 hover:border-amber-500/30 hover:bg-amber-500/10 transition-all"
