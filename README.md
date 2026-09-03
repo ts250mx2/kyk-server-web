@@ -312,8 +312,28 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   **Bitácora de retroalimentación**: cuando ningún documento responde la pregunta, el agente
   la registra en `adian_preguntas` (herramienta `registrar_pregunta_sin_respuesta`) y oficina
   la revisa en Documentos (botón 💬 con badge, modal con marcar-atendida) para saber qué
-  documento falta subir. Tono de capacitador, citas textuales y link "📄 Abrir" a la vista
-  inline (en PDFs con `#page=N` gracias a los marcadores [Página N] de la extracción).
+  documento falta subir. Tono de capacitador: la explicación nombra el documento y la página en el cuerpo, y
+  las citas textuales con el link "📄 Abrir" a la vista inline (en PDFs con `#page=N` gracias
+  a los marcadores [Página N] de la extracción) van colapsadas tras "Ver referencias". Los
+  documentos sin texto extraíble quedan marcados en `documentos_texto` (Parte 0) para no
+  reintentar su extracción en cada búsqueda. La búsqueda es **multi-término en una sola
+  llamada** (palabra clave, sinónimos, singular/plural; LIKE con puntaje en
+  [src/lib/busqueda-texto.ts](src/lib/busqueda-texto.ts), porque el InnoDB de MariaDB 5.5 no
+  tiene FULLTEXT), el agente **recuerda las páginas leídas** en la conversación
+  ([src/lib/adian-memoria.ts](src/lib/adian-memoria.ts), en memoria del proceso, 45 min) para
+  contestar seguimientos sin releer, el prompt de sistema es idéntico para todos (tienda,
+  nombre y lo leído viajan en el mensaje) para compartir el caché de prompt, y cada consulta
+  queda en la **bitácora `adian_consultas`** (modelo, rondas, herramientas, duración, tokens,
+  stop reason) que oficina consulta en `/api/documentos/consultas?dias=7`. Para leer más
+  rápido: **búsqueda automática** con las palabras de la pregunta antes de llamar al modelo (los 3
+  documentos más relevantes y el texto de la mejor página del primero van en el contexto, así la
+  respuesta suele salir en una sola ronda), la búsqueda del modelo regresa la **página sugerida**
+  de cada documento y el **texto de la mejor página** del más relevante, las páginas del agente son
+  de ~24k caracteres (las evaluaciones siguen con 12k), las herramientas de un mismo turno corren
+  en paralelo, y los documentos históricos sin indexar se procesan en **segundo plano**
+  ([src/lib/documentos-indexador.ts](src/lib/documentos-indexador.ts); la búsqueda espera a lo
+  mucho dos) con inserción de partes por lotes. Los módulos puros tienen pruebas unitarias con
+  `npm test` (vitest).
   Mismo protocolo streaming NDJSON, rate limit y prompt caching que Kesito; el panel de ambos
   agentes es el componente genérico [src/components/dashboard/AgenteChat.tsx](src/components/dashboard/AgenteChat.tsx)
   (acentos ámbar/violeta, conversación en sessionStorage por tienda+usuario). El nombre se

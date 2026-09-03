@@ -15,9 +15,14 @@ export interface UsoDeHerramienta {
     input: Record<string, unknown>;
 }
 
+/** Profundidad de razonamiento (output_config.effort de Anthropic) */
+export type EsfuerzoAgente = 'low' | 'medium' | 'high';
+
 export interface TurnoAgente {
     modelo: string;
     maxTokens: number;
+    /** Profundidad de razonamiento; si se omite aplica el default del proveedor */
+    esfuerzo?: EsfuerzoAgente;
     sistema: string;
     herramientas: Anthropic.Tool[];
     mensajes: Anthropic.MessageParam[];
@@ -30,11 +35,24 @@ export interface TurnoAgente {
     sinHerramientas?: boolean;
 }
 
+/** Tokens consumidos en un turno (para la bitácora de consultas) */
+export interface UsoTokens {
+    entrada: number;
+    salida: number;
+    cacheLeida: number;
+    cacheCreada: number;
+}
+
 export interface ResultadoTurno {
     /** Contenido para agregar al historial como mensaje assistant */
     contenido: Anthropic.ContentBlockParam[];
     /** Herramientas que el modelo pidió ejecutar (vacío = respuesta final) */
     usos: UsoDeHerramienta[];
+    /** El modelo agotó max_tokens: la respuesta salió cortada */
+    truncado: boolean;
+    uso: UsoTokens;
+    /** Motivo de paro tal como lo reporta el proveedor (end_turn, tool_use, stop, length…) */
+    stopReason: string;
 }
 
 export function esModeloOpenAI(modelo: string): boolean {
@@ -74,6 +92,11 @@ export async function correrTurnoAgente(turno: TurnoAgente): Promise<ResultadoTu
 
 // ---------- Anthropic ----------
 
+// Haiku 4.5 rechaza output_config.effort (400); los demás modelos actuales lo aceptan
+function soportaEsfuerzo(modelo: string): boolean {
+    return !/haiku/i.test(modelo);
+}
+
 async function turnoAnthropic(turno: TurnoAgente): Promise<ResultadoTurno> {
     const anthropic = new Anthropic();
     const streamModelo = anthropic.messages.stream({
@@ -83,6 +106,9 @@ async function turnoAnthropic(turno: TurnoAgente): Promise<ResultadoTurno> {
         system: [{ type: 'text', text: turno.sistema, cache_control: { type: 'ephemeral' } }],
         tools: turno.herramientas,
         ...(turno.sinHerramientas ? { tool_choice: { type: 'none' as const } } : {}),
+        ...(turno.esfuerzo && soportaEsfuerzo(turno.modelo)
+            ? { output_config: { effort: turno.esfuerzo } }
+            : {}),
         messages: turno.mensajes,
     });
     streamModelo.on('text', turno.alTexto);
@@ -92,7 +118,18 @@ async function turnoAnthropic(turno: TurnoAgente): Promise<ResultadoTurno> {
         .filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
         .map(b => ({ id: b.id, name: b.name, input: (b.input ?? {}) as Record<string, unknown> }));
     const pidioHerramientas = resultado.stop_reason === 'tool_use' && usos.length > 0;
-    return { contenido: resultado.content, usos: pidioHerramientas ? usos : [] };
+    return {
+        contenido: resultado.content,
+        usos: pidioHerramientas ? usos : [],
+        truncado: resultado.stop_reason === 'max_tokens',
+        uso: {
+            entrada: resultado.usage.input_tokens,
+            salida: resultado.usage.output_tokens,
+            cacheLeida: resultado.usage.cache_read_input_tokens ?? 0,
+            cacheCreada: resultado.usage.cache_creation_input_tokens ?? 0,
+        },
+        stopReason: resultado.stop_reason ?? '',
+    };
 }
 
 // ---------- OpenAI ----------
@@ -186,6 +223,8 @@ async function turnoOpenAI(turno: TurnoAgente): Promise<ResultadoTurno> {
         ...(herramientas.length > 0 ? { tools: herramientas } : {}),
         ...(turno.sinHerramientas && herramientas.length > 0 ? { tool_choice: 'none' as const } : {}),
         stream: true,
+        // El último pedazo trae el consumo de tokens (para la bitácora)
+        stream_options: { include_usage: true },
     };
     // Los gpt-5.6* en chat.completions no aceptan function tools con el
     // razonamiento activo: la API exige reasoning_effort 'none' (400 si no).
@@ -197,9 +236,23 @@ async function turnoOpenAI(turno: TurnoAgente): Promise<ResultadoTurno> {
     const stream = await openai.chat.completions.create(params);
 
     let texto = '';
+    let truncado = false;
+    let stopReason = '';
+    let uso: UsoTokens = { entrada: 0, salida: 0, cacheLeida: 0, cacheCreada: 0 };
     const llamadas = new Map<number, { id: string; nombre: string; argumentos: string }>();
     for await (const pedazo of stream) {
-        const delta = pedazo.choices[0]?.delta;
+        if (pedazo.usage) {
+            uso = {
+                entrada: pedazo.usage.prompt_tokens,
+                salida: pedazo.usage.completion_tokens,
+                cacheLeida: pedazo.usage.prompt_tokens_details?.cached_tokens ?? 0,
+                cacheCreada: 0,
+            };
+        }
+        const eleccion = pedazo.choices[0];
+        if (eleccion?.finish_reason) stopReason = eleccion.finish_reason;
+        if (eleccion?.finish_reason === 'length') truncado = true;
+        const delta = eleccion?.delta;
         if (!delta) continue;
         if (delta.content) {
             texto += delta.content;
@@ -226,5 +279,5 @@ async function turnoOpenAI(turno: TurnoAgente): Promise<ResultadoTurno> {
     // Sin texto ni herramientas (p. ej. todo se fue en razonamiento): bloque
     // vacío para que el historial siga siendo válido si el loop continúa
     if (contenido.length === 0) contenido.push({ type: 'text', text: '' });
-    return { contenido, usos };
+    return { contenido, usos, truncado, uso, stopReason };
 }

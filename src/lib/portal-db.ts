@@ -232,6 +232,29 @@ const TABLAS = [
         KEY idx_eval (IdEvaluacion),
         KEY idx_usuario (CodigoBarras)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS adian_consultas (
+        IdConsulta INT AUTO_INCREMENT PRIMARY KEY,
+        IdTienda INT NOT NULL DEFAULT 0,
+        Tienda VARCHAR(100) NOT NULL DEFAULT '',
+        CodigoBarras VARCHAR(45) NOT NULL DEFAULT '',
+        Nombre VARCHAR(100) NOT NULL DEFAULT '',
+        Modelo VARCHAR(60) NOT NULL DEFAULT '',
+        Pregunta VARCHAR(500) NOT NULL DEFAULT '',
+        Rondas INT NOT NULL DEFAULT 0,
+        Herramientas VARCHAR(255) NOT NULL DEFAULT '',
+        DuracionMs INT NOT NULL DEFAULT 0,
+        TokensEntrada INT NOT NULL DEFAULT 0,
+        TokensSalida INT NOT NULL DEFAULT 0,
+        TokensCache INT NOT NULL DEFAULT 0,
+        StopReason VARCHAR(40) NOT NULL DEFAULT '',
+        Truncada TINYINT NOT NULL DEFAULT 0,
+        SinRespuesta TINYINT NOT NULL DEFAULT 0,
+        Resultado VARCHAR(20) NOT NULL DEFAULT 'ok',
+        Error VARCHAR(255) NOT NULL DEFAULT '',
+        Fecha DATETIME NOT NULL,
+        KEY idx_fecha (Fecha),
+        KEY idx_modelo_fecha (Modelo, Fecha)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
 // Migraciones aditivas sobre instalaciones existentes; el error 1060

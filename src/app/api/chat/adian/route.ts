@@ -6,10 +6,28 @@ import {
     correrTurnoAgente,
     esErrorDeAccesoAlModelo,
     esErrorDeContexto,
+    type EsfuerzoAgente,
+    type ResultadoTurno,
 } from '@/lib/agente-modelo';
 import { esModeloPermitido } from '@/lib/modelos-agentes';
 import { portalQuery, esOficina } from '@/lib/portal-db';
-import { asegurarTexto, buscarEnTextos, obtenerPagina } from '@/lib/documentos-texto';
+import {
+    PARTES_POR_PAGINA_AGENTE,
+    asegurarTexto,
+    buscarEnTextos,
+    documentosSinIndexar,
+    obtenerPagina,
+} from '@/lib/documentos-texto';
+import { MAX_TERMINOS, terminosDePregunta } from '@/lib/busqueda-texto';
+import { indexadorDocumentos } from '@/lib/documentos-indexador';
+import {
+    contextoDeLectura,
+    olvidarConversacion,
+    paginasRecordadas,
+    recordarPagina,
+    type PaginaLeida,
+} from '@/lib/adian-memoria';
+import { registrarConsulta, type ResultadoConsulta } from '@/lib/adian-bitacora';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -18,18 +36,56 @@ export const maxDuration = 120;
 // los documentos subidos al portal (respetando la visibilidad por tienda).
 // Mismo protocolo streaming NDJSON que Kesito; sus herramientas listan y leen
 // documentos de BDKYKPortal, con extracción de texto local (PDF/Word/Excel).
-// El modelo se configura SOLO en .env (AGENTES_MODELO) y no se muestra en la UI;
-// acepta modelos de Anthropic (claude-*) y de OpenAI (gpt-*) — ver agente-modelo.
+// El modelo default se configura en .env (AGENTES_MODELO) y el selector del chat
+// puede cambiarlo por otro del catálogo; acepta modelos de Anthropic (claude-*)
+// y de OpenAI (gpt-*) — ver agente-modelo.
 const MODELO = process.env.AGENTES_MODELO || 'claude-opus-5';
 // 8: buscar con variantes + leer + responder; con 6 el agente se quedaba sin
 // rondas en temas que no existen y no alcanzaba a registrar la pregunta
 const MAX_ITERACIONES = 8;
+// max_tokens acota razonamiento + texto: Opus 5 y Sonnet 5 piensan por default,
+// así que con 2000 la respuesta podía salir cortada a media instrucción
+const MAX_TOKENS_RESPUESTA = 8_000;
+// Chat sobre documentos: 'medium' conserva la calidad con menos latencia y
+// costo que el default 'high' de la API
+const ESFUERZO: EsfuerzoAgente = 'medium';
+// Si aun así se agota max_tokens, se avisa en vez de dejar la instrucción a medias
+const AVISO_TRUNCADO = '\n\n_Me quedé sin espacio para terminar. Pídeme que continúe y sigo desde donde me quedé._';
 const MAX_HISTORIAL = 12;
 const MAX_LISTA = 100;
 // Tope por resultado de herramienta: evita que listas/lecturas grandes acumulen
 // hasta desbordar el contexto del modelo ("prompt is too long")
 const MAX_RESULTADO = 15_000;
+// La búsqueda trae además la mejor página (~24k) para ahorrar la ronda de lectura
+const MAX_RESULTADO_BUSQUEDA = 40_000;
 const MAX_RESUMEN_LISTA = 300;
+// Documentos históricos sin indexar: la búsqueda espera solo a estos y el resto
+// se indexa en segundo plano
+const MAX_BACKFILL_INLINE = 2;
+// Documentos que la búsqueda automática con la pregunta mete al contexto
+const MAX_DOCS_PREBUSQUEDA = 3;
+// Cada término lo manda el modelo (y un documento leído podría influirlo):
+// se acota como cualquier otra entrada
+const MAX_LARGO_TERMINO = 80;
+const HERRAMIENTA_SIN_RESPUESTA = 'registrar_pregunta_sin_respuesta';
+const AVISO_PAGINA_RECORTADA = '… [texto recortado: pide esta página con leer_documento]';
+// Margen para los escapes que agrega JSON (comillas, saltos de línea)
+const MARGEN_JSON = 50;
+
+// Si el resultado con la página completa pasa del tope, se recorta el TEXTO de
+// la página (con aviso) en vez de cortar el JSON a la mitad. Quitar N
+// caracteres del texto quita al menos N del JSON, así que el recorte alcanza.
+function jsonConPaginaAcotada(
+    armar: (texto: string | null) => Record<string, unknown>,
+    texto: string | null,
+    tope: number
+): string {
+    const completo = JSON.stringify(armar(texto));
+    if (completo.length <= tope || texto === null) return completo.slice(0, tope);
+    const exceso = completo.length - tope + AVISO_PAGINA_RECORTADA.length + MARGEN_JSON;
+    const recortado = texto.slice(0, Math.max(0, texto.length - exceso)) + AVISO_PAGINA_RECORTADA;
+    return JSON.stringify(armar(recortado)).slice(0, tope);
+}
 
 type Row = Record<string, unknown>;
 const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
@@ -50,6 +106,7 @@ function excedeLimite(clave: string): boolean {
 
 // Estados en primera persona: se muestran tal cual mientras el agente trabaja,
 // para que se sienta una persona ayudando y no un sistema procesando
+const ESTADO_PENSANDO = 'Estoy pensando en tu pregunta…';
 const ETIQUETA_HERRAMIENTA: Record<string, string> = {
     listar_documentos: 'Déjame ver qué documentos tenemos…',
     buscar_en_documentos: 'Estoy buscando ese tema en los documentos…',
@@ -70,18 +127,24 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
     },
     {
         name: 'buscar_en_documentos',
-        description: 'Busca un término DENTRO del contenido de todos los documentos visibles y regresa los documentos donde aparece, con fragmentos del texto alrededor de cada coincidencia. Ideal cuando el usuario pregunta por un tema y no sabes en qué documento está.',
+        description: `Busca DENTRO del contenido de todos los documentos visibles y regresa los documentos donde aparecen los términos, ordenados por relevancia, cada uno con fragmentos y su paginaSugerida (la página donde más coincide), además del TEXTO completo de la mejor página del documento más relevante (mejorDocumento): si ahí está la respuesta, contesta sin leer más. Manda en UNA sola llamada de 2 a ${MAX_TERMINOS} términos: la palabra clave tal como la dijo el usuario, sinónimos, singular y plural, y el nombre del proceso o formato relacionado (por ejemplo ["devolución", "devoluciones", "cambio de producto", "nota de crédito"]).`,
         input_schema: {
             type: 'object',
             properties: {
-                termino: { type: 'string', description: 'Palabra o frase a buscar en el contenido' },
+                terminos: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    minItems: 1,
+                    maxItems: MAX_TERMINOS,
+                    description: 'Palabras o frases a buscar: la clave, sinónimos y variantes',
+                },
             },
-            required: ['termino'],
+            required: ['terminos'],
         },
     },
     {
         name: 'leer_documento',
-        description: 'Regresa el TEXTO de un documento por su idDocumento, en páginas de ~12,000 caracteres (parámetro pagina, default 1; la respuesta indica totalPaginas para pedir las siguientes). Soporta PDF, Word (.docx), Excel/CSV y texto plano.',
+        description: 'Regresa el TEXTO de un documento por su idDocumento, en páginas de ~24,000 caracteres (parámetro pagina, default 1; la respuesta indica totalPaginas para pedir las siguientes). Empieza por la paginaSugerida de la búsqueda. Soporta PDF, Word (.docx), Excel/CSV y texto plano.',
         input_schema: {
             type: 'object',
             properties: {
@@ -106,12 +169,95 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
     },
 ];
 
+// Prompt de sistema IDÉNTICO para todos los usuarios: la tienda, el nombre y
+// lo ya leído viajan en el bloque [Contexto] del mensaje, así el prefijo
+// cacheado (herramientas + system) se comparte en toda la empresa en vez de
+// crearse por usuario.
+const SISTEMA = `Eres A.D.iA.N (Aprendizaje Dirigido por iA Nativo), el capacitador del portal KYK Server Web para las tiendas KYK. Ayudas a compañeros de todos los perfiles (intendencia, cajeros, almacenistas, carniceros, gerentes) a entender los documentos y manuales del portal.
+
+Al inicio de cada mensaje del usuario viene un bloque [Contexto] con su tienda, su nombre, los documentos que ya leíste en esta conversación y, en la primera pregunta, el resultado de una búsqueda automática con las palabras de la pregunta. Úsalo sin repetirlo ni mencionarlo como bloque.
+
+TONO: hablas de "tú", en español, claro y cercano, como un compañero con experiencia. Palabras sencillas; si el documento usa un término técnico, explícalo la primera vez. Nada de "es muy fácil" ni "es obvio", y nunca supongas el puesto de quien pregunta. Usa el nombre del usuario a lo mucho una vez por respuesta. Respuestas enfocadas y breves: la respuesta primero, el detalle después; profundiza cuando el usuario lo pida. Un procedimiento va en pasos numerados; una regla o política empieza con el veredicto (sí, no o depende). Simplifica la redacción, nunca el contenido: en seguridad, higiene, dinero o normas conserva todos los pasos y condiciones del documento. Las respuestas también se leen en voz alta: sin emojis y sin depender de tablas. La latencia importa: en cuanto tengas la información, empieza tu respuesta visible de inmediato.
+
+SOLO respondes con información contenida en los DOCUMENTOS del portal. Tu flujo:
+1. Si el bloque [Contexto] ya trae el texto que responde la pregunta (un documento leído antes o la página que trajo la búsqueda automática), responde con él directamente, sin volver a buscar ni releer.
+2. Si no, usa buscar_en_documentos mandando varios términos a la vez (la palabra clave, sinónimos, singular y plural, el nombre del proceso). Regresa los documentos por relevancia, la paginaSugerida de cada uno y el TEXTO de la mejor página del más relevante: si ahí está la respuesta, contesta ya. Para un panorama general usa listar_documentos, que trae el resumen de cada documento.
+3. Lee con leer_documento solo lo que la búsqueda no trajo, empezando por la paginaSugerida; viene paginado (~24k caracteres por página): pide más páginas solo si hace falta.
+4. Si la búsqueda no encuentra nada, haz UNA segunda búsqueda con términos distintos (otra forma de decirlo, el nombre del formato o del proceso). Solo cuando ya buscaste con términos distintos y revisaste los documentos candidatos sin encontrarlo, registra la pregunta con registrar_pregunta_sin_respuesta y díselo al usuario con calidez: así oficina sabe qué documento falta subir.
+
+CÓMO CITAR:
+- En la explicación di de qué documento sale la información y en qué página, con el nombre en **negritas**: "Según el **Manual de devoluciones** (página 3), ...". El usuario debe ver la fuente sin abrir nada.
+- Un dato exacto (monto, plazo, límite, horario) dilo tal cual lo escribe el documento, dentro de tu propia frase. Las citas con > van solo bajo [REFERENCIAS].
+- Al final de tu respuesta agrega una línea que diga exactamente:
+[REFERENCIAS]
+- Debajo van las citas textuales completas (líneas que empiezan con >), el nombre del documento en **negritas** con su página y el link [📄 Abrir NOMBRE](/api/documentos/ID/descargar?vista=1). Si es PDF y el texto trae marcadores [Página N], usa /api/documentos/ID/descargar?vista=1#page=N para abrirlo justo en esa parte. Esa sección va colapsada tras el botón "Ver referencias": la explicación debe entenderse sin ella.
+- Los marcadores [Página N] del texto son solo para ubicar: no los incluyas dentro de las citas.
+
+DIAGRAMA DE FLUJO: solo cuando el usuario pida ver el proceso en diagrama, agrega al final de la explicación (antes de [REFERENCIAS]) un bloque:
+\`\`\`flujo
+titulo: Nombre corto del proceso
+Primer paso, en pocas palabras
+Segundo paso
+? Pregunta de decisión (empieza con ?)
+si: Qué hacer si la respuesta es sí
+no: Qué hacer si la respuesta es no
+Paso final
+\`\`\`
+Una línea por paso, máximo 8, sin markdown ni números dentro del bloque (la numeración la pone el portal).
+
+PRÁCTICA: si el usuario pide practicar, hazle UNA pregunta sacada del documento y espera su respuesta; cuando conteste, dile qué tuvo bien y qué le faltó citando el documento, y ofrécele otra.
+
+Reglas:
+- NUNCA inventes contenido: todo lo que afirmes debe venir de un documento que leíste en esta conversación.
+- Si preguntan por datos operativos de la tienda (precios, ventas, inventario) o temas generales, aclara amablemente que tú solo manejas los documentos del portal y que para datos de la tienda está el agente Kesito.
+- Español siempre, con markdown ligero.`;
+
+// Lo que se acumula durante el turno para la bitácora de consultas
+interface EstadoBitacora {
+    rondas: number;
+    herramientas: string[];
+    tokensEntrada: number;
+    tokensSalida: number;
+    tokensCache: number;
+    stopReason: string;
+    truncada: boolean;
+    resultado: ResultadoConsulta;
+    error: string;
+}
+
+const BITACORA_INICIAL: EstadoBitacora = {
+    rondas: 0,
+    herramientas: [],
+    tokensEntrada: 0,
+    tokensSalida: 0,
+    tokensCache: 0,
+    stopReason: '',
+    truncada: false,
+    resultado: 'ok',
+    error: '',
+};
+
+function conTurno(bitacora: EstadoBitacora, resultado: ResultadoTurno): EstadoBitacora {
+    return {
+        ...bitacora,
+        rondas: bitacora.rondas + 1,
+        herramientas: [...bitacora.herramientas, ...resultado.usos.map(u => u.name)],
+        tokensEntrada: bitacora.tokensEntrada + resultado.uso.entrada,
+        tokensSalida: bitacora.tokensSalida + resultado.uso.salida,
+        tokensCache: bitacora.tokensCache + resultado.uso.cacheLeida,
+        stopReason: resultado.stopReason,
+        truncada: bitacora.truncada || resultado.truncado,
+    };
+}
+
 export async function POST(request: Request) {
+    const inicio = Date.now();
     const session = await getSession();
     if (!session) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-    if (excedeLimite(`${session.idTienda}:${session.codigobarras}`)) {
+    const claveConversacion = `${session.idTienda}:${session.codigobarras}`;
+    if (excedeLimite(claveConversacion)) {
         return NextResponse.json(
             { error: 'Muy rápido: espera un momento antes de volver a preguntar.' },
             { status: 429 }
@@ -141,6 +287,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `El agente no está configurado (falta ${faltante})` }, { status: 503 });
     }
 
+    // Conversación nueva (primera pregunta o botón ↺): se olvida lo leído antes
+    const historialLista: unknown[] = Array.isArray(historial) ? historial : [];
+    if (historialLista.length === 0) olvidarConversacion(claveConversacion);
+
     const oficina = await esOficina(session.codigobarras);
     const filtroTienda = oficina
         ? ''
@@ -167,14 +317,39 @@ export async function POST(request: Request) {
         return rutas;
     };
 
-    const documentosVisibles = async (): Promise<Row[]> =>
-        (await portalQuery(`
-            SELECT D.IdDocumento, D.IdCarpeta, D.Nombre, D.NombreArchivo, D.Tamano, D.FechaSubida, D.Resumen
-            FROM documentos D
-            WHERE D.Status = 0 ${filtroTienda}
-            ORDER BY D.FechaSubida DESC
-            LIMIT ${MAX_LISTA}
-        `)) as Row[];
+    // La lista de visibles se consulta una vez por petición (la usan la
+    // búsqueda automática, la búsqueda del modelo y el listado)
+    let visiblesPromesa: Promise<Row[]> | null = null;
+    const documentosVisibles = (): Promise<Row[]> => {
+        if (!visiblesPromesa) {
+            visiblesPromesa = portalQuery(`
+                SELECT D.IdDocumento, D.IdCarpeta, D.Nombre, D.NombreArchivo, D.Tamano, D.FechaSubida, D.Resumen
+                FROM documentos D
+                WHERE D.Status = 0 ${filtroTienda}
+                ORDER BY D.FechaSubida DESC
+                LIMIT ${MAX_LISTA}
+            `) as Promise<Row[]>;
+        }
+        return visiblesPromesa;
+    };
+
+    // Página del tamaño del agente (~24k caracteres), anotada en la memoria de
+    // la conversación para los turnos siguientes
+    const leerPaginaAgente = async (idDocumento: number, nombre: string, pagina: number) => {
+        const resultado = await obtenerPagina(idDocumento, pagina, PARTES_POR_PAGINA_AGENTE);
+        if (!resultado) return null;
+        recordarPagina(claveConversacion, {
+            idDocumento,
+            nombre,
+            pagina: resultado.pagina,
+            totalPaginas: resultado.totalPaginas,
+            texto: resultado.texto,
+        });
+        return resultado;
+    };
+
+    const yaLeida = (idDocumento: number, pagina: number): boolean =>
+        paginasRecordadas(claveConversacion).some(p => p.idDocumento === idDocumento && p.pagina === pagina);
 
     const listarDocumentos = async (busqueda: string): Promise<string> => {
         const [docs, rutas] = await Promise.all([documentosVisibles(), rutaCarpetas()]);
@@ -196,37 +371,65 @@ export async function POST(request: Request) {
         return JSON.stringify({ total: lista.length, documentos: lista }).slice(0, MAX_RESULTADO);
     };
 
-    const buscarDocumentos = async (termino: string): Promise<string> => {
-        const limpio = termino.trim();
-        if (!limpio) return JSON.stringify({ error: 'Término de búsqueda vacío' });
+    const buscarDocumentos = async (terminos: string[]): Promise<string> => {
+        const limpios = terminos
+            .map(t => String(t ?? '').trim().slice(0, MAX_LARGO_TERMINO))
+            .filter(Boolean)
+            .slice(0, MAX_TERMINOS);
+        if (limpios.length === 0) return JSON.stringify({ error: 'Manda al menos un término de búsqueda' });
 
         const docs = await documentosVisibles();
         if (docs.length === 0) return JSON.stringify({ mensaje: 'No hay documentos en el portal' });
+        const ids = docs.map(d => num(d.IdDocumento));
         const porId = new Map(docs.map(d => [num(d.IdDocumento), d]));
 
-        // Backfill perezoso: indexa hasta 10 documentos que aún no tengan texto
-        // (los recién subidos se indexan al subir; esto cubre los históricos)
-        const conTexto = (await portalQuery(
-            'SELECT DISTINCT IdDocumento FROM documentos_texto'
-        )) as Row[];
-        const indexados = new Set(conTexto.map(r => num(r.IdDocumento)));
-        const pendientes = docs.filter(d => !indexados.has(num(d.IdDocumento))).slice(0, 10);
-        for (const p of pendientes) {
-            await asegurarTexto(num(p.IdDocumento)).catch(() => { /* sin texto extraíble */ });
+        // Backfill de históricos sin indexar: la búsqueda espera solo a dos (en
+        // paralelo) y el resto se indexa en segundo plano para las siguientes.
+        // Los que no tienen texto extraíble quedan marcados y no se reintentan.
+        const pendientes = (await documentosSinIndexar(ids)).filter(id => !indexadorDocumentos.estaEnProceso(id));
+        await Promise.all(
+            pendientes.slice(0, MAX_BACKFILL_INLINE).map(id => asegurarTexto(id).catch(() => 0))
+        );
+        indexadorDocumentos.encolar(pendientes.slice(MAX_BACKFILL_INLINE));
+
+        const resultados = await buscarEnTextos(limpios, ids);
+        if (resultados.length === 0) {
+            return JSON.stringify({
+                terminos: limpios,
+                mensaje: 'Ningún documento visible contiene esos términos; prueba otra forma de decirlo o el nombre del proceso',
+            });
         }
 
-        const resultados = await buscarEnTextos(limpio, docs.map(d => num(d.IdDocumento)));
-        if (resultados.length === 0) {
-            return JSON.stringify({ mensaje: `Ningún documento visible contiene "${limpio}"` });
-        }
-        return JSON.stringify({
-            termino: limpio,
-            documentos: resultados.slice(0, 8).map(r => ({
+        // La mejor página del documento más relevante viaja en el mismo
+        // resultado: en la mayoría de los casos ahorra la ronda de lectura
+        const mejor = resultados[0];
+        const nombreMejor = str(porId.get(mejor.idDocumento)?.Nombre);
+        const paginaMejor = yaLeida(mejor.idDocumento, mejor.paginaSugerida)
+            ? null
+            : await leerPaginaAgente(mejor.idDocumento, nombreMejor, mejor.paginaSugerida);
+
+        const armar = (texto: string | null): Record<string, unknown> => ({
+            terminos: limpios,
+            documentos: resultados.map(r => ({
                 idDocumento: r.idDocumento,
                 nombre: str(porId.get(r.idDocumento)?.Nombre),
+                relevancia: r.puntaje,
+                paginaSugerida: r.paginaSugerida,
+                terminosEncontrados: r.terminos,
                 fragmentos: r.fragmentos,
             })),
-        }).slice(0, MAX_RESULTADO);
+            mejorDocumento: paginaMejor && texto !== null
+                ? {
+                    idDocumento: mejor.idDocumento,
+                    nombre: nombreMejor,
+                    pagina: paginaMejor.pagina,
+                    totalPaginas: paginaMejor.totalPaginas,
+                    texto,
+                    nota: 'Texto de la página más relevante del documento más relevante; si responde la pregunta, úsalo sin leer más',
+                }
+                : { idDocumento: mejor.idDocumento, nombre: nombreMejor, nota: 'Su mejor página ya está en tu contexto' },
+        });
+        return jsonConPaginaAcotada(armar, paginaMejor?.texto ?? null, MAX_RESULTADO_BUSQUEDA);
     };
 
     const leerDocumento = async (idDocumento: number, pagina: number): Promise<string> => {
@@ -243,7 +446,7 @@ export async function POST(request: Request) {
             return JSON.stringify({ error: 'Documento no encontrado o no disponible para tu tienda' });
         }
 
-        const resultado = await obtenerPagina(idDocumento, pagina);
+        const resultado = await leerPaginaAgente(idDocumento, str(doc.Nombre), pagina);
         if (!resultado) {
             return JSON.stringify({
                 nombre: str(doc.Nombre),
@@ -275,7 +478,13 @@ export async function POST(request: Request) {
     const ejecutarHerramienta = async (nombre: string, entrada: Record<string, unknown>): Promise<string> => {
         try {
             if (nombre === 'listar_documentos') return await listarDocumentos(String(entrada.busqueda ?? ''));
-            if (nombre === 'buscar_en_documentos') return await buscarDocumentos(String(entrada.termino ?? ''));
+            if (nombre === 'buscar_en_documentos') {
+                // Acepta también el viejo `termino` suelto por si el modelo lo manda así
+                const terminos = Array.isArray(entrada.terminos)
+                    ? entrada.terminos.map(t => String(t ?? ''))
+                    : [String(entrada.termino ?? '')];
+                return await buscarDocumentos(terminos);
+            }
             if (nombre === 'leer_documento') return await leerDocumento(Number(entrada.idDocumento), Number(entrada.pagina) || 1);
             if (nombre === 'registrar_pregunta_sin_respuesta') return await registrarPregunta(String(entrada.pregunta ?? ''));
             return JSON.stringify({ error: 'Herramienta desconocida' });
@@ -285,84 +494,87 @@ export async function POST(request: Request) {
         }
     };
 
-    // Nombre de pila para el trato de capacitador (dosificado por el prompt)
+    // Búsqueda automática con las palabras de la pregunta, antes de llamar al
+    // modelo: si acierta, la respuesta sale en UNA ronda en vez de tres
+    // (buscar, leer, responder). Solo cuando la conversación aún no tiene
+    // documentos leídos; los seguimientos ya viven de la memoria. Nunca espera
+    // a indexar ni tumba la consulta si falla. La página NO se anota todavía en
+    // la memoria: es una corazonada, y solo queda si el modelo respondió con
+    // ella sin pedir herramientas.
+    const SIN_PREBUSQUEDA = { texto: '', pagina: null as PaginaLeida | null };
+    const prebusqueda = async (): Promise<{ texto: string; pagina: PaginaLeida | null }> => {
+        try {
+            const terminos = terminosDePregunta(pregunta);
+            if (terminos.length === 0) return SIN_PREBUSQUEDA;
+            const docs = await documentosVisibles();
+            if (docs.length === 0) return SIN_PREBUSQUEDA;
+            const ids = docs.map(d => num(d.IdDocumento));
+            indexadorDocumentos.encolar(await documentosSinIndexar(ids));
+
+            const resultados = (await buscarEnTextos(terminos, ids)).slice(0, MAX_DOCS_PREBUSQUEDA);
+            if (resultados.length === 0) return SIN_PREBUSQUEDA;
+            const porId = new Map(docs.map(d => [num(d.IdDocumento), d]));
+            const lineas = resultados.map(r =>
+                `- **${str(porId.get(r.idDocumento)?.Nombre)}** (idDocumento ${r.idDocumento}, página sugerida ${r.paginaSugerida}): ${r.fragmentos[0] ?? ''}`
+            );
+            const mejor = resultados[0];
+            const nombreMejor = str(porId.get(mejor.idDocumento)?.Nombre);
+            const paginaMejor = await obtenerPagina(mejor.idDocumento, mejor.paginaSugerida, PARTES_POR_PAGINA_AGENTE);
+            const pagina: PaginaLeida | null = paginaMejor
+                ? {
+                    idDocumento: mejor.idDocumento,
+                    nombre: nombreMejor,
+                    pagina: paginaMejor.pagina,
+                    totalPaginas: paginaMejor.totalPaginas,
+                    texto: paginaMejor.texto,
+                }
+                : null;
+            const textoMejor = pagina
+                ? `\n\nTexto de la página ${pagina.pagina} de ${pagina.totalPaginas} de **${nombreMejor}** (idDocumento ${mejor.idDocumento}):\n${pagina.texto}`
+                : '';
+            return {
+                texto: `Búsqueda automática con las palabras de la pregunta (orientativa: si no es el tema, busca con tus propios términos):\n${lineas.join('\n')}${textoMejor}`,
+                pagina,
+            };
+        } catch (error) {
+            console.warn('Falló la búsqueda automática de A.D.iA.N:', error);
+            return SIN_PREBUSQUEDA;
+        }
+    };
+
+    // Contexto del turno en el mensaje del usuario (no en el system, para que
+    // el prefijo cacheado sea el mismo para todos): tienda, nombre, lo ya
+    // leído y, si aún no hay nada leído, la búsqueda automática
     const nombrePila = (session.name || '').trim().split(/\s+/)[0] || '';
-
-    const sistema = `Eres A.D.iA.N (Aprendizaje Dirigido por iA Nativo) del portal KYK Server Web: el capacitador amigable de la tienda ${session.tienda}. Enseñas como un compañero con experiencia que explica con gusto, sin apantallar. Tus usuarios son de todos los perfiles: intendencia, cajeros, almacenistas, carniceros y gerentes.
-
-PERSONALIDAD Y TONO:
-- Hablas de "tú", siempre en español.
-- Estás platicando con ${nombrePila || 'un compañero'}. Usa su nombre con naturalidad, a lo mucho UNA vez por respuesta (al arrancar o al cerrar); nunca en cada frase.
-- Frases cortas: una idea por frase, unas 15 palabras o menos casi siempre. Párrafos de máximo 3 líneas. La respuesta a lo que preguntó va en la PRIMERA frase; los detalles después.
-- Palabras sencillas, de tienda. Si el documento usa un término técnico, dilo y explícalo entre paréntesis la primera vez: "merma (producto que se pierde o se echa a perder)".
-- Puedes usar expresiones mexicanas naturales, máximo una o dos por respuesta: "Mira,", "Fíjate que", "Ojo:", "Ahí te va", "¿Sale?", "No te preocupes". NUNCA uses "compa", "carnal" ni "güey", no imites acentos ni escribas "pos" o "pa'": se siente burla. Las citas de documentos van textuales, sin muletillas.
-- Nunca digas "es muy fácil", "es obvio" ni "como ya deberías saber". Si la pregunta es común, valídala: "esto confunde a varios".
-- Escribe frases que también suenen bien leídas en voz alta (hay modo voz): sin emojis a media frase y sin depender de tablas.
-
-CÓMO ENSEÑAR (adapta la profundidad al TIPO de pregunta, nunca supongas el puesto del usuario):
-- Dato puntual (un horario, un monto, un límite): contesta directo en 1 o 2 frases, más la cita y el documento. Sin pasos ni rodeos ni ofertas extra.
-- Procedimiento ("¿cómo hago...?"): pasos numerados. Cada paso empieza con un verbo de acción y trae UNA sola acción. Máximo 7 pasos; si el documento trae más, divídelo en etapas ("Primero lo primero...", "Ya que terminaste eso..."). Cierra con la señal de que quedó bien: "Sabes que quedó bien cuando...".
-- Regla o política ("¿se puede...?", "¿por qué...?"): primero el veredicto en una frase (sí, no o depende), luego la explicación corta y un ejemplo de la vida de la tienda (la caja, la báscula, la bodega, el cliente).
-- Espeja el tamaño: pregunta corta, respuesta corta. Profundiza solo si el usuario pide más o pregunta abierto.
-- Para conceptos abstractos usa UNA comparación del día a día de la tienda; la comparación solo ilustra, la instrucción siempre sale del documento y se cita textual.
-- Simplifica la redacción, NUNCA el contenido: en temas de seguridad, higiene, dinero o normas conserva TODOS los pasos y condiciones que marca el documento.
-
-VERIFICAR QUE SE ENTENDIÓ (sin examinar):
-- Nunca preguntes "¿me entendiste?", "¿quedó claro?" ni "¿alguna duda?". Ofrece en su lugar: "¿Quieres que te lo ponga con un ejemplo?", "¿Te lo desgloso paso por paso?", "Si un paso no te cuadra, dime cuál y lo vemos".
-- Máximo UNA oferta de seguimiento al final, y solo cuando amerite; en datos puntuales no hace falta.
-- Si el usuario dice que no entendió o repite la pregunta, no repitas igual: explícalo DISTINTO — más corto, con un ejemplo de tienda, o empezando por el resultado final.
-
-PRÁCTICA: si el usuario pide practicar, hazle UNA sola pregunta clara sobre lo que acaban de ver (sacada del documento, nunca inventada) y ESPERA su respuesta; no te contestes solo. Cuando conteste: dile primero qué tuvo bien (celébralo), luego qué le faltó citando el documento, y ofrécele otra pregunta. Si acierta 2 o 3 seguidas, felicítalo y sugiérele presentar la evaluación de ese documento en la sección Evaluaciones del chat.
-
-DIAGRAMA DE FLUJO:
-- Si el usuario pide ver el proceso en diagrama, o si explicas un procedimiento de 3 a 7 pasos con decisiones, agrega AL FINAL de tu explicación un bloque:
-\`\`\`flujo
-titulo: Nombre corto del proceso
-Primer paso, en pocas palabras
-Segundo paso
-? Pregunta de decisión (empieza con ?)
-si: Qué hacer si la respuesta es sí
-no: Qué hacer si la respuesta es no
-Paso final
-\`\`\`
-- Una línea por paso, máximo 8 pasos, frases cortas y sencillas; sin markdown ni números dentro del bloque (la numeración la pone el portal).
-- El diagrama COMPLEMENTA tu explicación, nunca la sustituye; acompáñalo de una frase hablable tipo "Te dejé los pasos dibujados en pantalla".
-- Si el proceso es trivial (1 o 2 pasos), no pongas diagrama.
-
-SOLO respondes con información contenida en los DOCUMENTOS del portal. Tu flujo:
-1. Para un tema o dato específico empieza con buscar_en_documentos (busca dentro del contenido y regresa fragmentos). Para un panorama general usa listar_documentos, que trae el resumen de cada documento para elegir por significado.
-2. Lee con leer_documento los relevantes; viene paginado (~12k caracteres por página) — pide más páginas solo si hace falta.
-3. Si tras 3 o 4 búsquedas con términos distintos el tema no aparece, YA NO busques más: registra la pregunta con registrar_pregunta_sin_respuesta y díselo al usuario con calidez.
-
-CÓMO CITAR (las referencias van al FINAL, colapsadas):
-- Tu explicación va primero, completa y entendible por sí sola, SIN citas textuales adentro (el diagrama de flujo, si lo hay, también va en la explicación).
-- En la explicación NUNCA pongas renglones de "Fuente:", nombres de archivo ni links de documentos: todo eso vive solo bajo [REFERENCIAS]. Puedes mencionar de pasada "el manual" o "el procedimiento" sin nombre de archivo.
-- Hasta el final de tu respuesta agrega una línea que diga exactamente:
-[REFERENCIAS]
-- Debajo de esa línea va la evidencia: la(s) cita(s) textuales del documento (líneas que empiezan con >), el nombre del documento en **negritas** con su página, y el link [📄 Abrir NOMBRE](/api/documentos/ID/descargar?vista=1). Si es PDF y el texto trae marcadores [Página N], usa /api/documentos/ID/descargar?vista=1#page=N para abrirlo JUSTO en esa parte.
-- El usuario solo ve esa sección si toca el botón "Ver referencias": tu explicación NUNCA debe depender de ella para entenderse.
-- Los marcadores [Página N] del texto son solo para ubicar: no los incluyas dentro de las citas.
-
-Reglas:
-- NUNCA inventes contenido: si después de buscar concluyes que ningún documento visible contiene la respuesta, regístrala con registrar_pregunta_sin_respuesta y dile al usuario con calidez que la anotaste para que oficina sepa qué documento falta subir.
-- Si preguntan por datos operativos de la tienda (precios, ventas, inventario) o temas generales, aclara amablemente que tú solo manejas los documentos del portal y que para datos de la tienda está el agente Kesito.
-- Español siempre, con markdown ligero.`;
+    const paginasPrevias = paginasRecordadas(claveConversacion);
+    const previa = paginasPrevias.length === 0 ? await prebusqueda() : SIN_PREBUSQUEDA;
+    const contexto = [
+        `[Contexto] Tienda: ${session.tienda}. Usuario: ${session.name || 'un compañero'}${nombrePila ? ` (dile ${nombrePila})` : ''}.`,
+        contextoDeLectura(paginasPrevias),
+        previa.texto,
+    ].filter(Boolean).join('\n\n');
 
     const mensajes: Anthropic.MessageParam[] = [];
-    if (Array.isArray(historial)) {
-        for (const h of historial.slice(-MAX_HISTORIAL)) {
-            const rol = h?.rol === 'assistant' ? 'assistant' : 'user';
-            const texto = String(h?.texto ?? '').slice(0, 2000);
-            if (texto) mensajes.push({ role: rol, content: texto });
-        }
+    for (const h of historialLista.slice(-MAX_HISTORIAL)) {
+        const item = h as { rol?: unknown; texto?: unknown } | null;
+        const rol = item?.rol === 'assistant' ? 'assistant' : 'user';
+        const texto = String(item?.texto ?? '').slice(0, 2000);
+        if (texto) mensajes.push({ role: rol, content: texto });
     }
-    mensajes.push({ role: 'user', content: pregunta });
+    mensajes.push({
+        role: 'user',
+        content: [
+            { type: 'text', text: contexto },
+            { type: 'text', text: pregunta },
+        ],
+    });
 
     const codificador = new TextEncoder();
 
     const stream = new ReadableStream({
         async start(controller) {
             let conexionViva = true;
+            let bitacora = BITACORA_INICIAL;
             const emitir = (evento: Record<string, unknown>) => {
                 if (!conexionViva) return;
                 try {
@@ -372,40 +584,58 @@ Reglas:
                 }
             };
 
+            const avisarSiTruncado = (resultado: ResultadoTurno) => {
+                if (!resultado.truncado) return;
+                console.warn(`A.D.iA.N: respuesta cortada por max_tokens con ${modelo}`);
+                emitir({ t: 'delta', texto: AVISO_TRUNCADO });
+            };
+
             try {
+                // Desde el primer segundo se ve que algo pasa (el modelo razona
+                // antes de escribir o de pedir herramientas)
+                emitir({ t: 'estado', texto: ESTADO_PENSANDO });
                 let terminado = false;
                 for (let i = 0; i < MAX_ITERACIONES && conexionViva; i++) {
-                    // 2000: un procedimiento con cita, señal de éxito y diagrama
-                    // no debe cortarse a media instrucción
                     const resultado = await correrTurnoAgente({
                         modelo,
-                        maxTokens: 2000,
-                        sistema,
+                        maxTokens: MAX_TOKENS_RESPUESTA,
+                        esfuerzo: ESFUERZO,
+                        sistema: SISTEMA,
                         herramientas: HERRAMIENTAS,
                         mensajes,
                         alTexto: delta => emitir({ t: 'delta', texto: delta }),
                     });
+                    bitacora = conTurno(bitacora, resultado);
 
                     if (resultado.usos.length === 0) {
+                        // Respondió a la primera sin herramientas: la página de la
+                        // búsqueda automática sí era el tema y queda en la memoria
+                        // para los seguimientos
+                        if (i === 0 && previa.pagina) recordarPagina(claveConversacion, previa.pagina);
+                        avisarSiTruncado(resultado);
                         terminado = true;
                         break;
                     }
 
                     emitir({ t: 'reinicio' });
                     mensajes.push({ role: 'assistant', content: resultado.contenido });
-                    const resultados: Anthropic.ToolResultBlockParam[] = [];
-                    for (const uso of resultado.usos) {
-                        emitir({
-                            t: 'estado',
-                            texto: ETIQUETA_HERRAMIENTA[uso.name] ?? 'Estoy consultando los documentos…',
-                        });
-                        resultados.push({
-                            type: 'tool_result',
+                    emitir({
+                        t: 'estado',
+                        texto: resultado.usos.length > 1
+                            ? 'Estoy consultando varios documentos a la vez…'
+                            : ETIQUETA_HERRAMIENTA[resultado.usos[0].name] ?? 'Estoy consultando los documentos…',
+                    });
+                    // Varias herramientas en un turno (p. ej. dos lecturas) corren
+                    // en paralelo; los resultados van todos en un solo mensaje
+                    const resultados: Anthropic.ToolResultBlockParam[] = await Promise.all(
+                        resultado.usos.map(async uso => ({
+                            type: 'tool_result' as const,
                             tool_use_id: uso.id,
                             content: await ejecutarHerramienta(uso.name, uso.input as Record<string, unknown>),
-                        });
-                    }
+                        }))
+                    );
                     mensajes.push({ role: 'user', content: resultados });
+                    emitir({ t: 'estado', texto: ESTADO_PENSANDO });
                 }
 
                 // Rondas agotadas: una última llamada SIN ejecutar herramientas
@@ -422,13 +652,15 @@ Reglas:
                     emitir({ t: 'reinicio' });
                     const cierre = await correrTurnoAgente({
                         modelo,
-                        maxTokens: 2000,
-                        sistema,
+                        maxTokens: MAX_TOKENS_RESPUESTA,
+                        esfuerzo: ESFUERZO,
+                        sistema: SISTEMA,
                         herramientas: HERRAMIENTAS,
                         sinHerramientas: true,
                         mensajes,
                         alTexto: delta => emitir({ t: 'delta', texto: delta }),
                     });
+                    bitacora = conTurno(bitacora, cierre);
                     const textoCierre = cierre.contenido
                         .filter((b): b is Anthropic.TextBlockParam => b.type === 'text')
                         .map(b => b.text)
@@ -437,11 +669,20 @@ Reglas:
                     if (!textoCierre) {
                         emitir({ t: 'reinicio' });
                         emitir({ t: 'delta', texto: 'No pude completar la consulta, intenta preguntarlo de otra forma.' });
+                    } else {
+                        // Después del texto: un 'reinicio' posterior lo borraría
+                        avisarSiTruncado(cierre);
                     }
                 }
+                if (!conexionViva) bitacora = { ...bitacora, resultado: 'cancelado' };
                 emitir({ t: 'fin' });
             } catch (error) {
                 console.error('Error en A.D.iA.N:', error);
+                bitacora = {
+                    ...bitacora,
+                    resultado: 'error',
+                    error: error instanceof Error ? error.message : String(error),
+                };
                 // Si aun así el contexto se llenó, el remedio es empezar de cero
                 emitir({
                     t: 'error',
@@ -452,6 +693,20 @@ Reglas:
                             : 'El agente no pudo responder, intenta de nuevo.',
                 });
             } finally {
+                // La bitácora se registra pase lo que pase; nunca tumba la respuesta
+                registrarConsulta({
+                    idTienda: num(session.idTienda),
+                    tienda: str(session.tienda),
+                    codigoBarras: str(session.codigobarras),
+                    nombre: str(session.name),
+                    modelo,
+                    pregunta,
+                    duracionMs: Date.now() - inicio,
+                    ...bitacora,
+                    // Columna propia: la lista de herramientas se recorta a 255
+                    // caracteres y esta herramienta suele ser la última
+                    sinRespuesta: bitacora.herramientas.includes(HERRAMIENTA_SIN_RESPUESTA),
+                }).catch(err => console.warn('No se registró la consulta de A.D.iA.N en la bitácora:', err));
                 try { controller.close(); } catch { /* ya cerrado por el cliente */ }
             }
         },
