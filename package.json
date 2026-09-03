@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p 3006",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "evaluar:adian": "node scripts/evaluar-adian.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

@@ -47,8 +47,10 @@ const MAX_ITERACIONES = 8;
 // así que con 2000 la respuesta podía salir cortada a media instrucción
 const MAX_TOKENS_RESPUESTA = 8_000;
 // Chat sobre documentos: 'medium' conserva la calidad con menos latencia y
-// costo que el default 'high' de la API
-const ESFUERZO: EsfuerzoAgente = 'medium';
+// costo que el default 'high' de la API. Se puede probar otro sin tocar
+// código con AGENTES_ESFUERZO=low|medium|high en .env (y reiniciar)
+const ESFUERZOS: EsfuerzoAgente[] = ['low', 'medium', 'high'];
+const ESFUERZO: EsfuerzoAgente = ESFUERZOS.find(e => e === process.env.AGENTES_ESFUERZO) ?? 'medium';
 // Si aun así se agota max_tokens, se avisa en vez de dejar la instrucción a medias
 const AVISO_TRUNCADO = '\n\n_Me quedé sin espacio para terminar. Pídeme que continúe y sigo desde donde me quedé._';
 const MAX_HISTORIAL = 12;
@@ -619,6 +621,10 @@ export async function POST(request: Request) {
 
                     emitir({ t: 'reinicio' });
                     mensajes.push({ role: 'assistant', content: resultado.contenido });
+                    // Evento informativo (el panel ignora los tipos que no conoce):
+                    // el script de evaluación cuenta rondas y detecta cuándo el
+                    // agente registró la pregunta como sin respuesta
+                    for (const uso of resultado.usos) emitir({ t: 'herramienta', nombre: uso.name });
                     emitir({
                         t: 'estado',
                         texto: resultado.usos.length > 1

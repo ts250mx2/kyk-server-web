@@ -1,0 +1,55 @@
+{
+  "instrucciones": [
+    "Banco de preguntas de referencia para medir a A.D.iA.N con `npm run evaluar:adian`.",
+    "Cada entrada trae la pregunta tal como la haría alguien de tienda y el documento donde está la respuesta.",
+    "`documentoEsperado` es un pedazo del NOMBRE del documento como aparece en el portal (sin importar mayúsculas ni acentos); null significa que NO existe documento y el agente debe registrar la pregunta como sin respuesta.",
+    "`paginaEsperada` es opcional: si se pone, se revisa que la respuesta cite esa página.",
+    "Las entradas con `ejemplo: true` son de muestra: reemplázalas por preguntas reales (unas 25) y quita la marca. Conviene sacar la mitad de la bitácora de preguntas sin respuesta y de lo que la gente pregunta en el chat."
+  ],
+  "preguntas": [
+    {
+      "id": "ajuste-inventario",
+      "pregunta": "¿Cómo se hace un ajuste de inventario?",
+      "documentoEsperado": "ajuste de inventario",
+      "paginaEsperada": null,
+      "ejemplo": true
+    },
+    {
+      "id": "devoluciones-procedimiento",
+      "pregunta": "Explícame el procedimiento de devoluciones",
+      "documentoEsperado": "devoluciones",
+      "paginaEsperada": null,
+      "ejemplo": true
+    },
+    {
+      "id": "devolucion-parafrasis",
+      "pregunta": "¿Cuánto tiempo tiene un cliente para regresar un producto?",
+      "documentoEsperado": "devoluciones",
+      "paginaEsperada": null,
+      "notas": "Paráfrasis sin la palabra clave: mide si la búsqueda entiende el significado",
+      "ejemplo": true
+    },
+    {
+      "id": "merma-registro",
+      "pregunta": "¿Dónde registro la merma del día?",
+      "documentoEsperado": "merma",
+      "paginaEsperada": null,
+      "ejemplo": true
+    },
+    {
+      "id": "caja-corte",
+      "pregunta": "¿Qué hago si al corte de caja me sobra dinero?",
+      "documentoEsperado": "corte",
+      "paginaEsperada": null,
+      "ejemplo": true
+    },
+    {
+      "id": "sin-documento",
+      "pregunta": "¿Cuál es el procedimiento para pedir vacaciones?",
+      "documentoEsperado": null,
+      "paginaEsperada": null,
+      "notas": "No debe existir documento: el agente debe registrar la pregunta sin inventar",
+      "ejemplo": true
+    }
+  ]
+}

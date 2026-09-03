@@ -40,3 +40,6 @@ next-env.d.ts
 
 # archivos subidos al repositorio de documentos del portal
 /uploads/
+
+# Corridas del script de evaluación de A.D.iA.N (traen respuestas completas)
+/evaluaciones/resultados/

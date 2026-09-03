@@ -333,7 +333,20 @@ Nota de esquema: `tblRecibo2` dejó de usarse en 2010; los recibos vigentes est�
   en paralelo, y los documentos históricos sin indexar se procesan en **segundo plano**
   ([src/lib/documentos-indexador.ts](src/lib/documentos-indexador.ts); la búsqueda espera a lo
   mucho dos) con inserción de partes por lotes. Los módulos puros tienen pruebas unitarias con
-  `npm test` (vitest).
+  `npm test` (vitest). **Medición**: el banco de preguntas de referencia
+  [evaluaciones/adian-preguntas.json](evaluaciones/adian-preguntas.json) (pregunta + documento
+  esperado) se corre contra un servidor en marcha con
+  `npm run evaluar:adian -- --usuario CODIGO --password PASS --tienda ID [--modelo claude-sonnet-5]`
+  ([scripts/evaluar-adian.mts](scripts/evaluar-adian.mts); también `--base URL`, `--banco ruta`,
+  `--solo N` para una prueba corta, `--pausa ms` entre preguntas, o las variables
+  `ADIAN_EVAL_BASE/_USUARIO/_PASSWORD/_TIENDA/_MODELO`); reporta por pregunta acierto,
+  herramientas y rondas (el servidor emite un evento `herramienta` por cada llamada), duración
+  y primer texto, guarda la corrida después de cada pregunta en `evaluaciones/resultados/`
+  (ignorada por git: trae las respuestas completas) y compara dos corridas con
+  `--comparar a.json b.json`. El esfuerzo del modelo se puede probar sin tocar
+  código con `AGENTES_ESFUERZO=low|medium|high` en `.env`. La bitácora de consultas
+  (`/api/documentos/consultas`) incluye `corpus`: documentos con texto, sin texto extraíble
+  (escaneados: candidatos a OCR) y pendientes de indexar.
   Mismo protocolo streaming NDJSON, rate limit y prompt caching que Kesito; el panel de ambos
   agentes es el componente genérico [src/components/dashboard/AgenteChat.tsx](src/components/dashboard/AgenteChat.tsx)
   (acentos ámbar/violeta, conversación en sessionStorage por tienda+usuario). El nombre se

@@ -222,6 +222,34 @@ export async function buscarEnTextos(
     ).map(r => ({ ...r, paginaSugerida: paginaDeParte(r.mejorParte, PARTES_POR_PAGINA_AGENTE) }));
 }
 
+export interface EstadoCorpus {
+    /** Documentos activos en el portal */
+    documentos: number;
+    /** Con texto extraído (el agente los puede leer) */
+    conTexto: number;
+    /** Sin texto extraíble: escaneados, imágenes, ZIP… (candidatos a OCR) */
+    sinTexto: number;
+    /** Aún no procesados */
+    pendientes: number;
+}
+
+/** Cuántos documentos puede leer el agente y cuántos no (para decidir OCR) */
+export async function estadoDelCorpus(): Promise<EstadoCorpus> {
+    const [activos, procesados] = await Promise.all([
+        portalQuery('SELECT COUNT(*) AS N FROM documentos WHERE Status = 0') as Promise<Row[]>,
+        portalQuery(`
+            SELECT T.IdDocumento, MAX(T.Parte) AS MaxParte
+            FROM documentos_texto T
+            JOIN documentos D ON D.IdDocumento = T.IdDocumento AND D.Status = 0
+            GROUP BY T.IdDocumento
+        `) as Promise<Row[]>,
+    ]);
+    const documentos = num(activos[0]?.N);
+    const conTexto = procesados.filter(p => num(p.MaxParte) > PARTE_SIN_TEXTO).length;
+    const sinTexto = procesados.length - conTexto;
+    return { documentos, conTexto, sinTexto, pendientes: Math.max(0, documentos - procesados.length) };
+}
+
 /** Documentos visibles que todavía no se han procesado (ni texto ni marcador) */
 export async function documentosSinIndexar(idsVisibles: number[]): Promise<number[]> {
     if (idsVisibles.length === 0) return [];

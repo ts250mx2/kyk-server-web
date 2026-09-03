@@ -15,6 +15,7 @@ import {
     PARTES_POR_PAGINA_AGENTE,
     asegurarTexto,
     buscarEnTextos,
+    estadoDelCorpus,
     obtenerPagina,
     procesarTextoDocumento,
 } from './documentos-texto';
@@ -131,6 +132,29 @@ describe('obtenerPagina', () => {
     test('documento sin texto regresa null', async () => {
         portalQuery.mockResolvedValueOnce([{ Filas: 1, N: '0' }]);
         expect(await obtenerPagina(5, 1)).toBeNull();
+    });
+});
+
+describe('estadoDelCorpus', () => {
+    test('separa documentos con texto, sin texto (marcador) y pendientes', async () => {
+        portalQuery.mockImplementation(async (sql: string) => {
+            if (sql.includes('FROM documentos WHERE Status = 0')) return [{ N: 10 }];
+            return [
+                { IdDocumento: 1, MaxParte: 5 },
+                { IdDocumento: 2, MaxParte: '0' },
+                { IdDocumento: 3, MaxParte: 12 },
+            ];
+        });
+
+        expect(await estadoDelCorpus()).toEqual({ documentos: 10, conTexto: 2, sinTexto: 1, pendientes: 7 });
+    });
+
+    test('con el corpus vacío regresa ceros', async () => {
+        portalQuery.mockImplementation(async (sql: string) =>
+            sql.includes('FROM documentos WHERE Status = 0') ? [{ N: 0 }] : []
+        );
+
+        expect(await estadoDelCorpus()).toEqual({ documentos: 0, conTexto: 0, sinTexto: 0, pendientes: 0 });
     });
 });
 
